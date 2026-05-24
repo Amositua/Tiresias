@@ -1,0 +1,56 @@
+# Tables that Memory fingerprints after each Fivetran sync.
+#
+# Column names here are the REAL names as Fivetran syncs them to BigQuery.
+# Confirmed against tiresias-496915.hubspot schema on 2026-05-23.
+#
+# Primary silent-failure signal:
+#   deal_pipeline_stage.label — human-readable stage names (e.g. "Contract Sent").
+#   A HubSpot UI rename syncs here via Fivetran. Downstream models that JOIN on
+#   the label column will silently break. PSI on a 7-row table fires at ~2.1.
+#
+# Secondary signal:
+#   deal.deal_pipeline_stage_id — slug IDs (e.g. "contractsent"). Distribution
+#   is stable as long as no stages are added/removed. Monitors volume shifts.
+#
+watched_tables:
+  - dataset: hubspot
+    table: deal_pipeline_stage
+    priority: critical
+    description: >
+      Dimension table mapping stage IDs to human-readable labels and probabilities.
+      7 rows. The primary demo signal: renaming a label here breaks downstream JOIN
+      filters without any error on the deal table itself.
+    profile_columns:
+      - label          # human-readable stage name — THE column that changes on rename
+      - probability    # close probability (0.0–1.0) — used in downstream deal scoring
+      - is_closed      # boolean; used to classify won/lost vs open pipeline
+
+  - dataset: hubspot
+    table: deal
+    priority: critical
+    description: >
+      HubSpot deals — 100 rows. Fingerprinted for stage-ID distribution and amount.
+      deal_pipeline_stage_id holds slug IDs (contractsent, qualifiedtobuy, etc.) —
+      stable across a label rename, which is what distinguishes this scenario from
+      a simple column-value change.
+    profile_columns:
+      - deal_pipeline_stage_id   # stage ID distribution — stable on label rename
+      - property_amount          # deal value (FLOAT64)
+      - deal_pipeline_id         # pipeline distribution (should be 100% "default")
+      - property_closedate       # close date
+
+  - dataset: hubspot
+    table: contact
+    priority: standard
+    description: "HubSpot contacts — lifecycle stage distribution"
+    profile_columns:
+      - property_lifecyclestage
+      - property_hs_lead_status
+
+  - dataset: hubspot
+    table: company
+    priority: standard
+    description: "HubSpot companies — industry and employee-count distribution"
+    profile_columns:
+      - property_industry
+      - property_numberofemployees

@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+*.log
+
+# Environment
+.env
+.env.example
+.env.local
+.env.*.local
+
+# Google Cloud
+*.json
+!config/*.json
+!pyrightconfig.json
+service-account-key.json
+gcloud-key.json
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+*.tsbuildinfo
+.vercel
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Secrets
+*secret*
+*credential*
+*_key.json
+
+# Demo data (large files)
+seed_data/*.csv
+!seed_data/IMPORT_INSTRUCTIONS.md
+
+# BigQuery credentials auto-created by gcloud
+application_default_credentials.json

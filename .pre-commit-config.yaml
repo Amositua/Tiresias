@@ -1,0 +1,38 @@
+repos:
+  # Python — ruff (linting + import sorting)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+
+  # Python — black (formatting)
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        files: ^backend/
+        language_version: python3.11
+
+  # Python — mypy (type checking)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        files: ^backend/
+        args: [--ignore-missing-imports]
+        additional_dependencies:
+          - pydantic>=2.7.0
+          - types-PyYAML
+
+  # General
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key

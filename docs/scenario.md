@@ -181,7 +181,3 @@ python scripts/trigger_failure.py --mode reset --reset-mode authentic
 python scripts/trigger_failure.py --mode reset --reset-mode simulation
 ```
 
----
-
-*This scenario was designed for the Google Cloud Rapid Agent Hackathon (Fivetran partner track),
-targeting the "silent semantic failure" class of pipeline bugs that standard monitoring misses.*

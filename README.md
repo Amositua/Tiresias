@@ -21,12 +21,13 @@ Fivetran sync completed
         │
         ▼
 Memory: fingerprint the synced table
-  → PSI spike on dealstage column (1.87 vs threshold 0.25)
+  → PSI spike on deal_pipeline_stage.label (2.1 vs threshold 0.25)
   → "Contract Sent" absent from distribution; "Contract Under Review" present at same frequency
+  → hubspot.deal shows no anomaly — fact table is clean, dimension table is not
         │
         ▼
 Lineage: trace the blast radius
-  → hubspot.deal → stg_deals → fct_pipeline_by_stage → "Late Stage Pipeline" dashboard → VP of Sales
+  → hubspot.deal_pipeline_stage → stg_deals → fct_pipeline_by_stage → "Late Stage Pipeline" dashboard → VP of Sales
         │
         ▼
 Oracle (Gemini 3.1 Pro): classify the drift
@@ -96,10 +97,10 @@ graph TD
 
 ```bash
 # 1. Clone and set up environment
-git clone https://github.com/YOUR_USERNAME/tiresias
-cd tiresias
-cp .env.example .env
-# Fill in .env — see comments in that file
+git clone https://github.com/Amositua/Tiresias
+cd Tiresias
+# Create .env — required variables listed in infra/setup.sh and config/watched_tables.yaml
+# GOOGLE_CLOUD_PROJECT, BIGQUERY_HUBSPOT_DATASET, FIVETRAN_*, HUBSPOT_ACCESS_TOKEN
 
 # 2. Install dependencies
 cd backend && pip install -r requirements.txt
@@ -122,12 +123,6 @@ make dev
 
 ---
 
-## Environment variables
-
-See `.env.example` for all required variables with descriptions.
-
----
-
 ## Demo scenario
 
 The demo uses a seeded HubSpot account with 100 deals across 7 pipeline stages. 18 deals in "Contract Sent" represent **$2.56M** in late-stage pipeline.
@@ -146,18 +141,19 @@ python scripts/trigger_failure.py --mode authentic
 
 ## Status
 
-**Session 1 — In progress**
-
 | Phase | Status | Notes |
 |---|---|---|
-| Phase 0: Scaffold | ✅ Complete | Monorepo, env, Makefile, pre-commit |
-| Phase 1: Memory | 🔄 In progress | Fingerprinting against synthetic baseline; real sync data incoming |
-| Phase 2: Lineage | ⏳ Session 2 | Will use real Fivetran Quickstart dbt manifest |
-| Phase 3: Oracle | ⏳ Session 2 | |
-| Phase 4: Orchestrator + MCP | ⏳ Session 3 | |
-| Phase 5: Frontend | ⏳ Session 4 | |
-| Phase 6: Demo polish | ⏳ Session 5 | |
-| Phase 7: Submission | ⏳ Session 5 | |
+| Phase 0: Scaffold | ✅ Done | Monorepo, Makefile, pre-commit, infra scripts |
+| Phase 1: Memory | ✅ Done | PSI fingerprinting confirmed on real Fivetran data |
+| Phase 2: Lineage | 🔄 In progress | dbt manifest graph, blast-radius tracing |
+| Phase 3: Oracle | 🔄 In progress | Gemini inference, structured output |
+| Phase 4: Orchestrator + MCP | ⏳ Pending | ADK orchestrator, Fivetran MCP tools |
+| Phase 5: Frontend | ⏳ Pending | Next.js approval dashboard, React Flow graph |
+| Phase 6: Demo polish | ⏳ Pending | |
+| Phase 7: Submission | ⏳ Pending | |
 
-**Blocked:** None.
-**Next:** Complete Memory fingerprinting, point at real synced HubSpot data once first sync completes.
+**Phase 1 confirmed on real data (2026-05-23):**
+- `hubspot.deal` — 100 rows, `contractsent` at 18% of deals, DriftReport clean (PSI 0.002)
+- `hubspot.deal_pipeline_stage` — 7 rows, `label` uniform across all stages, DriftReport clean (PSI 0.0004)
+- Schema delta empty on both tables — `config/watched_tables.yaml` column names match the live schema exactly
+- Baseline locked: "Contract Sent" at 14.3% in `deal_pipeline_stage.label` — rename fires PSI ~2.1

@@ -1,0 +1,112 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v9/manifest.json",
+    "dbt_version": "1.7.0",
+    "generated_at": "2026-05-23T00:00:00.000000Z",
+    "invocation_id": "00000000-0000-0000-0000-000000000001",
+    "env": {}
+  },
+  "nodes": {
+    "model.tiresias.stg_deals": {
+      "unique_id": "model.tiresias.stg_deals",
+      "name": "stg_deals",
+      "resource_type": "model",
+      "package_name": "tiresias",
+      "database": "tiresias-496915",
+      "schema": "tiresias_staging",
+      "alias": "stg_deals",
+      "fqn": ["tiresias", "staging", "stg_deals"],
+      "original_file_path": "models/staging/stg_deals.sql",
+      "path": "staging/stg_deals.sql",
+      "config": {"materialized": "view"},
+      "depends_on": {
+        "nodes": [
+          "source.tiresias.hubspot.deal",
+          "source.tiresias.hubspot.deal_pipeline_stage"
+        ]
+      },
+      "raw_code": "SELECT\n  d.deal_id,\n  d.deal_pipeline_stage_id,\n  s.label AS stage_label,\n  d.property_amount,\n  d.property_closedate\nFROM {{ source('hubspot', 'deal') }} d\nJOIN {{ source('hubspot', 'deal_pipeline_stage') }} s\n  ON d.deal_pipeline_stage_id = s.stage_id\nWHERE s.label = 'Contract Sent'\n  AND NOT d._fivetran_deleted",
+      "compiled_code": "SELECT\n  d.deal_id,\n  d.deal_pipeline_stage_id,\n  s.label AS stage_label,\n  d.property_amount,\n  d.property_closedate\nFROM `tiresias-496915`.`hubspot`.`deal` d\nJOIN `tiresias-496915`.`hubspot`.`deal_pipeline_stage` s\n  ON d.deal_pipeline_stage_id = s.stage_id\nWHERE s.label = 'Contract Sent'\n  AND NOT d._fivetran_deleted",
+      "tags": [],
+      "meta": {},
+      "columns": {
+        "deal_id": {"name": "deal_id", "description": ""},
+        "stage_label": {"name": "stage_label", "description": "Human-readable stage name from deal_pipeline_stage.label"}
+      }
+    },
+    "model.tiresias.fct_pipeline_by_stage": {
+      "unique_id": "model.tiresias.fct_pipeline_by_stage",
+      "name": "fct_pipeline_by_stage",
+      "resource_type": "model",
+      "package_name": "tiresias",
+      "database": "tiresias-496915",
+      "schema": "tiresias_marts",
+      "alias": "fct_pipeline_by_stage",
+      "fqn": ["tiresias", "marts", "fct_pipeline_by_stage"],
+      "original_file_path": "models/marts/fct_pipeline_by_stage.sql",
+      "path": "marts/fct_pipeline_by_stage.sql",
+      "config": {"materialized": "table"},
+      "depends_on": {
+        "nodes": ["model.tiresias.stg_deals"]
+      },
+      "raw_code": "SELECT\n  stage_name,\n  COUNT(*) AS deal_count,\n  SUM(property_amount) AS pipeline_value,\n  SUM(CASE WHEN property_closedate >= CURRENT_DATE() THEN property_amount ELSE 0 END) AS active_pipeline_value\nFROM {{ ref('stg_deals') }}\nGROUP BY stage_name",
+      "compiled_code": "SELECT\n  stage_name,\n  COUNT(*) AS deal_count,\n  SUM(property_amount) AS pipeline_value,\n  SUM(CASE WHEN property_closedate >= CURRENT_DATE() THEN property_amount ELSE 0 END) AS active_pipeline_value\nFROM `tiresias-496915`.`tiresias_staging`.`stg_deals`\nGROUP BY stage_name",
+      "tags": [],
+      "meta": {},
+      "columns": {}
+    }
+  },
+  "sources": {
+    "source.tiresias.hubspot.deal": {
+      "unique_id": "source.tiresias.hubspot.deal",
+      "name": "deal",
+      "source_name": "hubspot",
+      "resource_type": "source",
+      "package_name": "tiresias",
+      "database": "tiresias-496915",
+      "schema": "hubspot",
+      "identifier": "deal",
+      "fqn": ["tiresias", "hubspot", "deal"],
+      "depends_on": {"nodes": []},
+      "tags": [],
+      "meta": {}
+    },
+    "source.tiresias.hubspot.deal_pipeline_stage": {
+      "unique_id": "source.tiresias.hubspot.deal_pipeline_stage",
+      "name": "deal_pipeline_stage",
+      "source_name": "hubspot",
+      "resource_type": "source",
+      "package_name": "tiresias",
+      "database": "tiresias-496915",
+      "schema": "hubspot",
+      "identifier": "deal_pipeline_stage",
+      "fqn": ["tiresias", "hubspot", "deal_pipeline_stage"],
+      "depends_on": {"nodes": []},
+      "tags": [],
+      "meta": {}
+    }
+  },
+  "exposures": {
+    "exposure.tiresias.late_stage_pipeline_dashboard": {
+      "unique_id": "exposure.tiresias.late_stage_pipeline_dashboard",
+      "name": "late_stage_pipeline_dashboard",
+      "resource_type": "exposure",
+      "package_name": "tiresias",
+      "type": "dashboard",
+      "description": "Late Stage Pipeline KPI — deal value and count for Contract Sent stage",
+      "maturity": "high",
+      "owner": {
+        "name": "VP of Sales",
+        "email": "vp-sales@company.com"
+      },
+      "depends_on": {
+        "nodes": ["model.tiresias.fct_pipeline_by_stage"]
+      },
+      "tags": [],
+      "meta": {}
+    }
+  },
+  "metrics": {},
+  "groups": {},
+  "semantic_models": {}
+}

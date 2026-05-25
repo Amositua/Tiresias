@@ -27,6 +27,7 @@ htmlcov/
 *.json
 !config/*.json
 !pyrightconfig.json
+!backend/tests/fixtures/*.json
 service-account-key.json
 gcloud-key.json
 

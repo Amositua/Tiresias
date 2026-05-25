@@ -145,8 +145,8 @@ python scripts/trigger_failure.py --mode authentic
 |---|---|---|
 | Phase 0: Scaffold | ✅ Done | Monorepo, Makefile, pre-commit, infra scripts |
 | Phase 1: Memory | ✅ Done | PSI fingerprinting confirmed on real Fivetran data |
-| Phase 2: Lineage | 🔄 In progress | dbt manifest graph, blast-radius tracing |
-| Phase 3: Oracle | 🔄 In progress | Gemini inference, structured output |
+| Phase 2: Lineage | ✅ Done | dbt manifest graph, blast-radius tracing, 13/13 tests |
+| Phase 3: Oracle | ✅ Done | gemini-3.1-pro-preview, structured output, SILENT_SEMANTIC_FAILURE at 0.95 confidence |
 | Phase 4: Orchestrator + MCP | ⏳ Pending | ADK orchestrator, Fivetran MCP tools |
 | Phase 5: Frontend | ⏳ Pending | Next.js approval dashboard, React Flow graph |
 | Phase 6: Demo polish | ⏳ Pending | |

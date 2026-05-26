@@ -107,6 +107,32 @@ def health() -> dict:
     return {"status": "ok", "agent": "tiresias"}
 
 
+# ── dev trigger (disabled unless TIRESIAS_DEV_TRIGGERS=true) ─────────────────
+
+_DEV_TRIGGERS = os.environ.get("TIRESIAS_DEV_TRIGGERS", "").lower() == "true"
+
+
+@app.post("/dev/trigger")
+async def dev_trigger(request: Request) -> dict:
+    """Run the full pipeline without Fivetran signature verification.
+
+    Only active when TIRESIAS_DEV_TRIGGERS=true.  Never set that flag in
+    production.  The Memory → Lineage → Oracle → MCP path is identical to
+    the real webhook — only the signature check is skipped.
+    """
+    if not _DEV_TRIGGERS:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    payload = await request.json()
+    connector_id = payload.get("connector_id", "wanderer_financing")
+    schema = payload.get("schema", "hubspot")
+    table = payload.get("table", "deal_pipeline_stage")
+
+    log.info("dev_trigger", connector_id=connector_id, table=f"{schema}.{table}")
+    orch = _require_orchestrator()
+    return await orch.handle_sync_completed(connector_id, schema, table)
+
+
 # ── fivetran webhook ──────────────────────────────────────────────────────────
 
 @app.post("/webhook/fivetran")

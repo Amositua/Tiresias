@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* React Flow — reset default white background and override edge colors */
+.react-flow__background {
+  background-color: #06091A !important;
+}
+
+.react-flow__pane {
+  background-color: #06091A;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__handle {
+  width: 6px;
+  height: 6px;
+  background: #1A2142;
+  border: 1px solid #1A2142;
+}
+
+/* Animated edges: gold moving dash */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: #C9933A;
+  stroke-dasharray: 6 3;
+  animation: edge-flow 0.7s linear infinite;
+}
+
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+/* Source node gold pulse ring */
+@keyframes ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(201, 147, 58, 0.5), 0 0 12px rgba(201, 147, 58, 0.2);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(201, 147, 58, 0), 0 0 12px rgba(201, 147, 58, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(201, 147, 58, 0), 0 0 12px rgba(201, 147, 58, 0.2);
+  }
+}
+
+.node-anomalous {
+  animation: ring-pulse 1.8s ease-out infinite;
+}
+
+/* Monitoring idle pulse on the status dot */
+@keyframes ping-slow {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-ping-slow {
+  animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}

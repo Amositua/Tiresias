@@ -9,7 +9,7 @@ from typing import Any
 
 import structlog
 
-from lineage.graph import LineageGraph
+from lineage.graph import BlastRadius, LineageGraph
 from memory.fingerprint import DriftReport
 from oracle.inference import DriftClassification, OracleAgent, OracleVerdict
 
@@ -25,6 +25,7 @@ class PendingAction:
     oracle_verdict: OracleVerdict
     proposed_fix: str      # human-readable; shown in dashboard
     schema_check: dict     # raw Fivetran response from get_schema_config
+    blast_radius: BlastRadius | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -128,6 +129,7 @@ class TiresiasOrchestrator:
             oracle_verdict=verdict,
             proposed_fix=proposed_fix,
             schema_check=schema_config,
+            blast_radius=blast_radius,
         )
         self._pending[action.report_id] = action
         self._audit(

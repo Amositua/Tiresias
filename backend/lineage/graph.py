@@ -25,6 +25,7 @@ class BlastRadius:
     source_table: str
     changed_column: str
     nodes: list[BlastRadiusNode] = field(default_factory=list)
+    edges: list[tuple[str, str]] = field(default_factory=list)  # (from_name, to_name)
 
     def as_summary(self) -> str:
         if not self.nodes:
@@ -124,10 +125,25 @@ class LineageGraph:
                 references_column=references_column,
             ))
 
+        # Extract edges within the blast radius subgraph (source + all downstream)
+        uid_to_name: dict[str, str] = {
+            source_uid: self._nodes[source_uid].get("name", source_uid)
+        }
+        for uid in distances:
+            if uid != source_uid:
+                uid_to_name[uid] = self._nodes[uid].get("name", uid)
+        all_uids = set(uid_to_name)
+        edges = [
+            (uid_to_name[u], uid_to_name[v])
+            for u, v in self._graph.edges()
+            if u in all_uids and v in all_uids
+        ]
+
         return BlastRadius(
             source_table=source_table,
             changed_column=changed_column,
             nodes=result,
+            edges=edges,
         )
 
     def _find_source(self, source_table: str) -> str | None:

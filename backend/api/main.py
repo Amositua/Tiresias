@@ -9,12 +9,18 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent.parent / ".env", override=True)
+
 import structlog
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from lineage.graph import LineageGraph
+from lineage.graph import BlastRadius, LineageGraph
 from oracle.inference import OracleAgent
 from tiresias.orchestrator import PendingAction, TiresiasOrchestrator
 
@@ -146,7 +152,36 @@ class VerdictResponse(BaseModel):
     recommended_action: str
     proposed_mcp_action: str
     blast_radius_summary: str
+    blast_radius_graph: dict
     created_at: str
+
+
+def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
+    if br is None:
+        return {"nodes": [], "edges": []}
+    source_node = {
+        "id": br.source_table,
+        "label": br.source_table,
+        "node_type": "source",
+        "severity": "flagged",
+        "owner": None,
+        "references_column": False,
+    }
+    downstream = [
+        {
+            "id": n.name,
+            "label": n.name,
+            "node_type": n.node_type,
+            "severity": n.severity,
+            "owner": n.owner,
+            "references_column": n.references_column,
+        }
+        for n in br.nodes
+    ]
+    return {
+        "nodes": [source_node] + downstream,
+        "edges": [{"source": u, "target": v} for u, v in br.edges],
+    }
 
 
 def _action_to_response(action: PendingAction) -> VerdictResponse:
@@ -164,6 +199,7 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
             f"set {action.schema_name}.{action.table_name} enabled=false"
         ),
         blast_radius_summary=v.blast_radius_summary,
+        blast_radius_graph=_blast_radius_to_graph(action.blast_radius),
         created_at=action.created_at.isoformat(),
     )
 
@@ -211,6 +247,15 @@ async def approve_or_dismiss(report_id: str, request: Request) -> dict:
 
     log.info("investigate_flagged", report_id=report_id)
     return {"status": "flagged_for_investigation", "report_id": report_id}
+
+
+# ── lineage ────────────────────────────────────────────────────────────────────
+
+@app.get("/lineage/blast-radius")
+def lineage_blast_radius(table: str, column: str = "") -> dict:
+    orch = _require_orchestrator()
+    br = orch._lineage.blast_radius(table, column)
+    return _blast_radius_to_graph(br)
 
 
 # ── fingerprints (stub) ───────────────────────────────────────────────────────

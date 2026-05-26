@@ -1,20 +1,83 @@
 """Tiresias backend API."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
-import logging
 import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from lineage.graph import LineageGraph
+from oracle.inference import OracleAgent
+from tiresias.orchestrator import PendingAction, TiresiasOrchestrator
 
 log = structlog.get_logger(__name__)
+
+_orchestrator: TiresiasOrchestrator | None = None
+
+
+def _build_orchestrator() -> TiresiasOrchestrator:
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "tiresias-496915")
+    manifest = os.environ.get(
+        "DBT_MANIFEST_PATH",
+        str(__import__("pathlib").Path(__file__).parent.parent / "tests" / "fixtures" / "manifest.json"),
+    )
+    api_key = os.environ.get("FIVETRAN_API_KEY", "")
+    api_secret = os.environ.get("FIVETRAN_API_SECRET", "")
+
+    lineage = LineageGraph(manifest)
+    lineage.load()
+    oracle = OracleAgent(project=project)
+
+    use_rest = os.environ.get("FIVETRAN_USE_REST_FALLBACK", "false").lower() == "true"
+    if use_rest:
+        from tiresias.fivetran_rest import FivetranRestClient
+        mcp_client: Any = FivetranRestClient(api_key, api_secret)
+        log.warning("fivetran_rest_fallback_active")
+    else:
+        from tiresias.mcp_client import FivetranMCPClient
+        mcp_client = FivetranMCPClient(api_key, api_secret)
+
+    fingerprinter = None
+    if os.environ.get("BIGQUERY_HUBSPOT_DATASET"):
+        try:
+            from google.cloud import bigquery
+            from memory.fingerprint import BigQueryFingerprinter
+            bq = bigquery.Client(project=project)
+            fingerprinter = BigQueryFingerprinter(bq, project)
+        except Exception as exc:
+            log.warning("fingerprinter_init_failed", error=str(exc))
+
+    return TiresiasOrchestrator(
+        fingerprinter=fingerprinter,
+        lineage_graph=lineage,
+        oracle=oracle,
+        mcp_client=mcp_client,
+        config={"project": project},
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _orchestrator
+    _orchestrator = _build_orchestrator()
+    log.info("orchestrator_ready")
+    yield
+    _orchestrator = None
+
 
 app = FastAPI(
     title="Tiresias",
     description="Pre-cognitive data quality agent for Fivetran pipelines",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -25,15 +88,25 @@ app.add_middleware(
 )
 
 
+def _require_orchestrator() -> TiresiasOrchestrator:
+    if _orchestrator is None:
+        raise HTTPException(status_code=503, detail="Orchestrator not ready")
+    return _orchestrator
+
+
+# ── health ────────────────────────────────────────────────────────────────────
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "agent": "tiresias"}
 
 
+# ── fivetran webhook ──────────────────────────────────────────────────────────
+
 @app.post("/webhook/fivetran")
 async def fivetran_webhook(
     request: Request,
-    x_fivetran_signature: str = Header(None),
+    x_fivetran_signature: str | None = Header(None),
 ) -> dict:
     body = await request.body()
     _verify_fivetran_signature(body, x_fivetran_signature)
@@ -41,13 +114,15 @@ async def fivetran_webhook(
     payload = await request.json()
     event_type = payload.get("event")
     connector_id = payload.get("connector_id")
+    schema = payload.get("schema", "hubspot")
+    table = payload.get("table", "deal_pipeline_stage")
 
     if event_type != "sync_end":
         return {"status": "ignored", "event": event_type}
 
     log.info("fivetran_sync_completed", connector_id=connector_id)
-
-    return {"status": "accepted", "connector_id": connector_id}
+    orch = _require_orchestrator()
+    return await orch.handle_sync_completed(connector_id, schema, table)
 
 
 def _verify_fivetran_signature(body: bytes, signature: str | None) -> None:
@@ -59,19 +134,87 @@ def _verify_fivetran_signature(body: bytes, signature: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid Fivetran signature")
 
 
-@app.get("/fingerprints")
-def list_fingerprints(dataset: str, table: str, limit: int = 10) -> dict:
-    return {"dataset": dataset, "table": table, "fingerprints": []}
+# ── verdicts ──────────────────────────────────────────────────────────────────
 
+class VerdictResponse(BaseModel):
+    report_id: str
+    status: str
+    classification: str
+    confidence: float
+    reasoning: str
+    affected_columns: list[str]
+    recommended_action: str
+    proposed_mcp_action: str
+    blast_radius_summary: str
+    created_at: str
+
+
+def _action_to_response(action: PendingAction) -> VerdictResponse:
+    v = action.oracle_verdict
+    return VerdictResponse(
+        report_id=action.report_id,
+        status="pending_approval",
+        classification=v.classification.value,
+        confidence=v.confidence,
+        reasoning=v.reasoning,
+        affected_columns=v.affected_columns,
+        recommended_action=v.recommended_action,
+        proposed_mcp_action=(
+            f"modify_connection_table_config: "
+            f"set {action.schema_name}.{action.table_name} enabled=false"
+        ),
+        blast_radius_summary=v.blast_radius_summary,
+        created_at=action.created_at.isoformat(),
+    )
+
+
+@app.get("/verdicts")
+def list_verdicts() -> dict:
+    orch = _require_orchestrator()
+    return {
+        "verdicts": [_action_to_response(a).model_dump() for a in orch._pending.values()]
+    }
+
+
+@app.get("/verdicts/{report_id}")
+def get_verdict(report_id: str) -> VerdictResponse:
+    orch = _require_orchestrator()
+    action = orch._pending.get(report_id)
+    if action is None:
+        raise HTTPException(status_code=404, detail="No pending verdict for this report_id")
+    return _action_to_response(action)
+
+
+# ── approvals ─────────────────────────────────────────────────────────────────
 
 @app.post("/approvals/{report_id}")
-async def approve_fix(report_id: str, request: Request) -> dict:
+async def approve_or_dismiss(report_id: str, request: Request) -> dict:
     body = await request.json()
     action = body.get("action")
 
     if action not in {"approve", "dismiss", "investigate"}:
-        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action!r}")
 
-    log.info("approval_received", report_id=report_id, action=action)
+    orch = _require_orchestrator()
 
-    return {"status": "received", "report_id": report_id, "action": action}
+    if action == "approve":
+        try:
+            return await orch.execute_approved(report_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="No pending action for this report_id")
+
+    if action == "dismiss":
+        try:
+            return orch.execute_dismissed(report_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="No pending action for this report_id")
+
+    log.info("investigate_flagged", report_id=report_id)
+    return {"status": "flagged_for_investigation", "report_id": report_id}
+
+
+# ── fingerprints (stub) ───────────────────────────────────────────────────────
+
+@app.get("/fingerprints")
+def list_fingerprints(dataset: str, table: str, limit: int = 10) -> dict:
+    return {"dataset": dataset, "table": table, "fingerprints": []}

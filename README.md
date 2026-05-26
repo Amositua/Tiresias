@@ -37,7 +37,7 @@ Oracle (Gemini 3.1 Pro): classify the drift
         ▼
 Tiresias: propose a fix, wait for human approval
   → Human approves in the dashboard
-  → Fivetran MCP executes: sync_connection to confirm state
+  → Fivetran MCP executes: modify_connection_table_config → deal_pipeline_stage.enabled=false
         │
         ▼
 Audit log records every decision
@@ -84,7 +84,7 @@ graph TD
 
 - **Brain:** Gemini 3.1 Pro via Vertex AI (Google Gen AI SDK)
 - **Orchestration:** Google Cloud Agent Builder + Agent Development Kit (Python)
-- **Partner integration:** Fivetran MCP server (4 tools: `list_connections`, `get_connection_schema_config`, `modify_connection_table_config`, `sync_connection`)
+- **Partner integration:** Fivetran MCP server (official Python stdio server; `get_connection_schema_config` for read-only schema inspection, `modify_connection_table_config` for quarantine writes gated behind `FIVETRAN_ALLOW_WRITES=true`)
 - **Data warehouse:** BigQuery (`tiresias-496915` project, `hubspot` dataset for raw tables, `tiresias_meta` for agent state)
 - **Backend:** Python 3.11, FastAPI
 - **Frontend:** Next.js 14 App Router, TypeScript, Tailwind CSS, shadcn/ui, React Flow, Framer Motion
@@ -147,7 +147,7 @@ python scripts/trigger_failure.py --mode authentic
 | Phase 1: Memory | ✅ Done | PSI fingerprinting confirmed on real Fivetran data |
 | Phase 2: Lineage | ✅ Done | dbt manifest graph, blast-radius tracing, 13/13 tests |
 | Phase 3: Oracle | ✅ Done | gemini-3.1-pro-preview, structured output, SILENT_SEMANTIC_FAILURE at 0.95 confidence |
-| Phase 4: Orchestrator + MCP | ⏳ Pending | ADK orchestrator, Fivetran MCP tools |
+| Phase 4: Orchestrator + MCP | ✅ Done | Full pipeline verified end-to-end on real Fivetran infrastructure — see [docs/e2e_verification.md](docs/e2e_verification.md) |
 | Phase 5: Frontend | ⏳ Pending | Next.js approval dashboard, React Flow graph |
 | Phase 6: Demo polish | ⏳ Pending | |
 | Phase 7: Submission | ⏳ Pending | |
@@ -157,3 +157,10 @@ python scripts/trigger_failure.py --mode authentic
 - `hubspot.deal_pipeline_stage` — 7 rows, `label` uniform across all stages, DriftReport clean (PSI 0.0004)
 - Schema delta empty on both tables — `config/watched_tables.yaml` column names match the live schema exactly
 - Baseline locked: "Contract Sent" at 14.3% in `deal_pipeline_stage.label` — rename fires PSI ~2.1
+
+**Phase 4 verified end-to-end on real Fivetran infrastructure (2026-05-26):**
+- MCP schema check discovers `schema_name="hubspot"` dynamically from live API
+- Oracle classifies SILENT_SEMANTIC_FAILURE at 0.95 confidence in ~31s with Gemini 3.1 Pro thinking
+- `modify_connection_table_config` PATCH confirmed: `deal_pipeline_stage.enabled=false` in Fivetran
+- Full pipeline — detect → reason → trace → approve → act — runs in ~42s end to end
+- Two-gate write enforcement confirmed: `report_id` in `_pending` + `FIVETRAN_ALLOW_WRITES=true` subprocess

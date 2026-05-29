@@ -284,6 +284,44 @@ def lineage_blast_radius(table: str, column: str = "") -> dict:
     return _blast_radius_to_graph(br)
 
 
+# ── vp pipeline (live BigQuery) ───────────────────────────────────────────────
+
+@app.get("/vp-pipeline")
+def vp_pipeline() -> dict:
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "tiresias-496915")
+    try:
+        from google.cloud import bigquery as bq
+    except ImportError:
+        raise HTTPException(status_code=503, detail="google-cloud-bigquery not installed")
+
+    sql = f"""
+SELECT
+  COALESCE(SUM(d.property_amount), 0) AS pipeline_value,
+  COUNT(*)                             AS deal_count
+FROM `{project}.hubspot.deal` d
+JOIN `{project}.hubspot.deal_pipeline_stage` s
+  ON d.deal_pipeline_stage_id = s.stage_id
+WHERE s.label = 'Contract Sent'
+  AND NOT d._fivetran_deleted
+"""
+    client = bq.Client(project=project)
+    rows = list(client.query(sql).result())
+    row = rows[0]
+    return {
+        "pipeline_value": float(row.pipeline_value),
+        "deal_count": int(row.deal_count),
+        "queried_at": datetime.now(timezone.utc).isoformat(),
+        "query_sql": (
+            f"SELECT COALESCE(SUM(d.property_amount), 0)\n"
+            f"FROM `{project}.hubspot.deal` d\n"
+            f"JOIN `{project}.hubspot.deal_pipeline_stage` s\n"
+            f"  ON d.deal_pipeline_stage_id = s.stage_id\n"
+            f"WHERE s.label = 'Contract Sent'\n"
+            f"  AND NOT d._fivetran_deleted"
+        ),
+    }
+
+
 # ── fingerprints (stub) ───────────────────────────────────────────────────────
 
 @app.get("/fingerprints")

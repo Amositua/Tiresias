@@ -123,7 +123,7 @@ export default function VPDashboard() {
       {/* ── footer ── */}
       <footer className="px-8 py-4 border-t border-navy-700 flex items-center justify-between">
         <Link
-          href="/"
+          href="/monitor"
           className="text-xs text-cream-300 hover:text-cream-100 transition-colors"
         >
           ← Tiresias monitoring

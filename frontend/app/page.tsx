@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import VerdictPanel from "@/components/VerdictPanel";
 import { Verdict, GraphNode, GraphEdge } from "@/lib/types";
 
@@ -18,6 +19,15 @@ const LineageGraph = dynamic(() => import("@/components/LineageGraph"), {
 const LINEAGE_TABLE = "deal_pipeline_stage";
 const LINEAGE_COLUMN = "label";
 const POLL_MS = 4000;
+
+function HorizonChip({ horizon, value }: { horizon: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-cream-300/30 uppercase tracking-widest">{horizon}</span>
+      <span className="text-cream-300/50 font-mono">{value}</span>
+    </div>
+  );
+}
 
 type GraphState = "monitoring" | "anomalous" | "quarantined";
 
@@ -116,20 +126,37 @@ export default function Home() {
             pre-cognitive data quality
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-gold-400 opacity-60" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-gold-400" />
-          </span>
-          <span className="text-cream-300/40 text-xs">
-            {graphState === "monitoring"
-              ? "monitoring hubspot"
-              : graphState === "anomalous"
-                ? "anomaly detected"
-                : "quarantine active"}
-          </span>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/vp-dashboard"
+            className="text-[11px] text-cream-300/40 hover:text-cream-300/70 transition-colors tracking-wide"
+          >
+            VP dashboard ↗
+          </Link>
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-gold-400 opacity-60" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-gold-400" />
+            </span>
+            <span className="text-cream-300/40 text-xs">
+              {graphState === "monitoring"
+                ? "monitoring hubspot"
+                : graphState === "anomalous"
+                  ? "anomaly detected"
+                  : "quarantine active"}
+            </span>
+          </div>
         </div>
       </header>
+
+      {/* Three-horizon status strip */}
+      <div className="flex items-center gap-0 px-6 border-b border-navy-700 bg-navy-900/50 flex-shrink-0 h-8 text-[10px]">
+        <HorizonChip horizon="Schema" value="MCP · wanderer_financing" />
+        <div className="w-px h-3 bg-navy-700 mx-4" />
+        <HorizonChip horizon="Memory" value="PSI threshold 0.25 · 7-day baseline" />
+        <div className="w-px h-3 bg-navy-700 mx-4" />
+        <HorizonChip horizon="Oracle" value="Gemini 2.0 Flash · structured output" />
+      </div>
 
       {/* Two-panel body */}
       <div className="flex flex-1 overflow-hidden">

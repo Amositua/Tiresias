@@ -9,20 +9,35 @@ import { Verdict } from "@/lib/types";
 const CLASSIFICATION_LABEL: Record<string, string> = {
   SILENT_SEMANTIC_FAILURE: "Silent Semantic Failure",
   ORGANIC_DRIFT: "Organic Drift",
+  UPSTREAM_DATA_QUALITY: "Upstream Data Quality",
   SCHEMA_CHANGE: "Schema Change",
   NO_ANOMALY: "No Anomaly",
 };
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: "text-red-400",
-  high: "text-amber-400",
-  medium: "text-yellow-500",
-  low: "text-cream-300",
+  high:     "text-amber-400",
+  medium:   "text-yellow-500",
+  low:      "text-cream-300",
+  flagged:  "text-gold-400",
 };
 
-// ── Monitoring state ──────────────────────────────────────────────────────────
-
 const WATCHED = ["hubspot.deal", "hubspot.deal_pipeline_stage"];
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function StatusPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-navy-700 rounded px-2.5 py-1.5 text-center min-w-0">
+      <div className="text-cream-300/40 text-[10px] uppercase tracking-widest whitespace-nowrap">
+        {label}
+      </div>
+      <div className="text-cream-300/60 text-[11px] font-mono mt-0.5 whitespace-nowrap">
+        {value}
+      </div>
+    </div>
+  );
+}
 
 function MonitoringIdle() {
   return (
@@ -45,6 +60,12 @@ function MonitoringIdle() {
         ))}
       </div>
 
+      <div className="flex gap-2 flex-wrap justify-center">
+        <StatusPill label="Schema" value="MCP · wanderer_financing" />
+        <StatusPill label="Memory" value="7-day baseline" />
+        <StatusPill label="Oracle" value="Gemini 2.0 Flash" />
+      </div>
+
       <p className="text-cream-300/30 text-xs tracking-wide">
         No anomalies detected
       </p>
@@ -52,7 +73,137 @@ function MonitoringIdle() {
   );
 }
 
-// ── Verdict card ──────────────────────────────────────────────────────────────
+// ── PSI metric row ────────────────────────────────────────────────────────────
+
+function PsiMetric({ verdict }: { verdict: Verdict }) {
+  if (!verdict.psi_column || verdict.psi_score === 0) return null;
+  const multiple = verdict.psi_threshold > 0
+    ? (verdict.psi_score / verdict.psi_threshold).toFixed(1)
+    : "—";
+
+  return (
+    <div className="px-6 py-4 border-b border-navy-700 grid grid-cols-3 gap-4">
+      <div>
+        <div className="text-cream-300/40 text-[10px] uppercase tracking-widest mb-1">
+          PSI score
+        </div>
+        <div className="text-gold-400 text-2xl font-semibold tabular-nums leading-none">
+          {verdict.psi_score.toFixed(2)}
+        </div>
+        <div className="text-cream-300/40 text-[10px] mt-1">
+          threshold {verdict.psi_threshold}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-cream-300/40 text-[10px] uppercase tracking-widest mb-1">
+          Column
+        </div>
+        <div className="text-cream-100 text-sm font-mono leading-snug">
+          {verdict.psi_column}
+        </div>
+        <div className="text-amber-400/70 text-[10px] mt-1">
+          {multiple}× over threshold
+        </div>
+      </div>
+
+      {Math.abs(verdict.row_delta_z) >= 0.5 && (
+        <div>
+          <div className="text-cream-300/40 text-[10px] uppercase tracking-widest mb-1">
+            Row delta
+          </div>
+          <div className="text-cream-100 text-sm tabular-nums leading-snug">
+            {verdict.row_delta_z > 0 ? "+" : ""}
+            {verdict.row_delta_z.toFixed(2)}σ
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Schema delta ──────────────────────────────────────────────────────────────
+
+function SchemaDelta({ added, removed }: { added: string[]; removed: string[] }) {
+  if (added.length === 0 && removed.length === 0) return null;
+  return (
+    <div className="px-6 py-4 border-b border-navy-700">
+      <div className="text-cream-300/40 text-[10px] uppercase tracking-widest mb-2">
+        Schema delta
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {added.map((col) => (
+          <span
+            key={col}
+            className="text-[11px] font-mono bg-navy-700 text-emerald-400 px-2 py-0.5 rounded"
+          >
+            +{col}
+          </span>
+        ))}
+        {removed.map((col) => (
+          <span
+            key={col}
+            className="text-[11px] font-mono bg-navy-700 text-red-400 px-2 py-0.5 rounded"
+          >
+            −{col}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Blast radius ──────────────────────────────────────────────────────────────
+
+function BlastRadiusSection({ verdict }: { verdict: Verdict }) {
+  const downstream = verdict.blast_radius_graph.nodes.filter(
+    (n) => n.node_type !== "source"
+  );
+  if (downstream.length === 0) return null;
+
+  return (
+    <div className="px-6 py-4 border-b border-navy-700">
+      <div className="text-cream-300/40 text-[10px] uppercase tracking-widest mb-3">
+        Blast radius
+      </div>
+      <div className="space-y-3">
+        {downstream.map((n) => (
+          <div key={n.id} className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                {n.references_column && (
+                  <span
+                    className="text-gold-400 text-[10px] flex-shrink-0"
+                    title="directly references the drifted column"
+                  >
+                    ◆
+                  </span>
+                )}
+                <span className="text-sm font-mono text-cream-100 truncate">
+                  {n.label}
+                </span>
+              </div>
+              {n.owner && (
+                <div className="text-[11px] text-cream-300/50 mt-0.5 pl-3.5">
+                  → {n.owner}
+                </div>
+              )}
+            </div>
+            <div
+              className={`text-[10px] font-semibold uppercase tracking-widest flex-shrink-0 mt-0.5 ${
+                SEVERITY_CLASS[n.severity] ?? "text-cream-300"
+              }`}
+            >
+              {n.severity}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 type Props = {
   verdict: Verdict | null;
@@ -104,13 +255,13 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -16 }}
           transition={{ duration: 0.38, ease: "easeOut" }}
-          className="flex flex-col h-full overflow-y-auto"
+          className="flex flex-col overflow-y-auto"
         >
-          {/* Classification + confidence */}
+          {/* ── Classification + confidence ── */}
           <div className="px-6 py-5 border-b border-navy-700">
             <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="text-gold-400 text-xs font-semibold tracking-widest uppercase mb-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-gold-400 text-[11px] font-semibold tracking-widest uppercase mb-2">
                   {CLASSIFICATION_LABEL[verdict.classification] ??
                     verdict.classification}
                 </div>
@@ -126,19 +277,28 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
-                <div className="text-gold-200 text-2xl font-semibold tabular-nums">
+                <div className="text-gold-200 text-2xl font-semibold tabular-nums leading-none">
                   {(verdict.confidence * 100).toFixed(0)}%
                 </div>
-                <div className="text-cream-300/40 text-xs mt-0.5">
+                <div className="text-cream-300/40 text-[10px] mt-1">
                   confidence
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Oracle's reasoning */}
+          {/* ── PSI metric ── */}
+          <PsiMetric verdict={verdict} />
+
+          {/* ── Schema delta ── */}
+          <SchemaDelta
+            added={verdict.schema_added}
+            removed={verdict.schema_removed}
+          />
+
+          {/* ── Oracle's reasoning ── */}
           <div className="px-6 py-5 border-b border-navy-700">
-            <div className="text-cream-300/40 text-xs tracking-widest uppercase mb-3">
+            <div className="text-cream-300/40 text-[10px] tracking-widest uppercase mb-3">
               Oracle&apos;s Assessment
             </div>
             <p className="font-serif italic text-cream-100 leading-relaxed text-sm">
@@ -146,60 +306,33 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
             </p>
           </div>
 
-          {/* Blast radius table */}
-          {verdict.blast_radius_graph.nodes.filter(
-            (n) => n.node_type !== "source"
-          ).length > 0 && (
-            <div className="px-6 py-5 border-b border-navy-700">
-              <div className="text-cream-300/40 text-xs tracking-widest uppercase mb-3">
-                Blast Radius
-              </div>
-              <div className="space-y-2">
-                {verdict.blast_radius_graph.nodes
-                  .filter((n) => n.node_type !== "source")
-                  .map((n) => (
-                    <div
-                      key={n.id}
-                      className="flex items-center justify-between"
-                    >
-                      <div className="text-sm font-mono text-cream-100">
-                        {n.label}
-                      </div>
-                      <div
-                        className={`text-xs font-semibold uppercase tracking-widest ${SEVERITY_CLASS[n.severity] ?? "text-cream-300"}`}
-                      >
-                        {n.severity}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
+          {/* ── Blast radius ── */}
+          <BlastRadiusSection verdict={verdict} />
 
-          {/* Proposed action */}
-          <div className="px-6 py-5 border-b border-navy-700">
-            <div className="text-cream-300/40 text-xs tracking-widest uppercase mb-3">
+          {/* ── Proposed action ── */}
+          <div className="px-6 py-4 border-b border-navy-700">
+            <div className="text-cream-300/40 text-[10px] tracking-widest uppercase mb-2">
               Proposed Action
             </div>
-            <p className="text-cream-300 text-sm leading-relaxed">
+            <p className="text-cream-300 text-xs font-mono leading-relaxed">
               {verdict.proposed_mcp_action}
             </p>
           </div>
 
-          {/* CTA */}
-          <div className="px-6 py-6 mt-auto">
+          {/* ── CTA ── */}
+          <div className="px-6 py-5">
             <AnimatePresence mode="wait">
               {approveState === "done" ? (
                 <motion.div
                   key="done"
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-center space-y-1"
+                  className="text-center space-y-1.5"
                 >
                   <div className="text-red-400 text-sm font-semibold tracking-wide uppercase">
                     Quarantine Executed
                   </div>
-                  <div className="text-cream-300/40 text-xs font-mono">
+                  <div className="text-cream-300/40 text-[11px] font-mono">
                     {verdict.proposed_mcp_action}
                   </div>
                 </motion.div>
@@ -230,9 +363,7 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
                     disabled={approveState === "loading"}
                     className="flex-1 bg-gold-400 hover:bg-gold-200 disabled:opacity-50 disabled:cursor-not-allowed text-navy-950 font-semibold text-sm py-2.5 px-4 rounded transition-colors duration-150"
                   >
-                    {approveState === "loading"
-                      ? "Executing…"
-                      : "Approve quarantine"}
+                    {approveState === "loading" ? "Executing…" : "Approve quarantine"}
                   </button>
                   <button
                     onClick={handleDismiss}

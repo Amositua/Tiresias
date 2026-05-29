@@ -29,4 +29,12 @@ export type Verdict = {
   blast_radius_summary: string;
   blast_radius_graph: BlastRadiusGraph;
   created_at: string;
+  // drift metrics
+  psi_score: number;
+  psi_column: string | null;
+  psi_threshold: number;
+  row_delta_z: number;
+  anomaly_reason: string | null;
+  schema_added: string[];
+  schema_removed: string[];
 };

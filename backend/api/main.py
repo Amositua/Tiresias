@@ -180,6 +180,14 @@ class VerdictResponse(BaseModel):
     blast_radius_summary: str
     blast_radius_graph: dict
     created_at: str
+    # drift metrics
+    psi_score: float
+    psi_column: str | None
+    psi_threshold: float
+    row_delta_z: float
+    anomaly_reason: str | None
+    schema_added: list[str]
+    schema_removed: list[str]
 
 
 def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
@@ -212,6 +220,7 @@ def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
 
 def _action_to_response(action: PendingAction) -> VerdictResponse:
     v = action.oracle_verdict
+    dr = action.drift_report
     return VerdictResponse(
         report_id=action.report_id,
         status="pending_approval",
@@ -227,6 +236,13 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
         blast_radius_summary=v.blast_radius_summary,
         blast_radius_graph=_blast_radius_to_graph(action.blast_radius),
         created_at=action.created_at.isoformat(),
+        psi_score=dr.max_psi_score if dr else 0.0,
+        psi_column=dr.max_psi_column if dr else None,
+        psi_threshold=action.psi_threshold,
+        row_delta_z=dr.row_count_z_score if dr else 0.0,
+        anomaly_reason=dr.anomaly_reason if dr else None,
+        schema_added=dr.schema_delta.added if dr else [],
+        schema_removed=dr.schema_delta.removed if dr else [],
     )
 
 

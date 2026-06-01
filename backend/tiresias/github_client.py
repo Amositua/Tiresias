@@ -15,7 +15,10 @@ class GitHubClient:
 
     def __init__(self, token: str, repo: str) -> None:
         self._token = token
-        self._repo = repo  # e.g. "Amositua/Tiresias"
+        # Accept both "Amositua/Tiresias" and "https://github.com/Amositua/Tiresias"
+        if repo.startswith("http"):
+            repo = repo.rstrip("/").split("github.com/")[-1]
+        self._repo = repo  # normalised to "owner/repo"
 
     # ── HTTP ──────────────────────────────────────────────────────────────────
 

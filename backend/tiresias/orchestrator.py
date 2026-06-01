@@ -56,7 +56,8 @@ class TiresiasOrchestrator:
         self._mcp = mcp_client
         self._config = config
         self._pending: dict[str, PendingAction] = {}
-        self._psi_log: deque[dict] = deque(maxlen=200)  # rolling PSI history
+        self._quarantined: dict[str, PendingAction] = {}  # quarantined, awaiting re-enable
+        self._psi_log: deque[dict] = deque(maxlen=200)
 
     async def handle_sync_completed(
         self,
@@ -123,6 +124,19 @@ class TiresiasOrchestrator:
                 "reasoning": verdict.reasoning,
             }
 
+        # --- Generate dbt fix via second Gemini pass ---
+        try:
+            affected_models = [
+                n.name for n in blast_radius.nodes
+                if n.references_column and n.node_type == "model"
+            ]
+            models_sql = self._lineage.get_models_sql(affected_models)
+            if models_sql:
+                fixes = self._oracle.generate_fix(verdict, blast_radius, models_sql)
+                verdict = verdict.model_copy(update={"suggested_fixes": fixes})
+        except Exception as exc:
+            log.warning("fix_generation_failed", error=str(exc))
+
         # --- Queue pending approval ---
         if schema_name is None:
             schema_name = "unknown"
@@ -181,6 +195,9 @@ class TiresiasOrchestrator:
             action.connector_id, action.schema_name, action.table_name
         )
 
+        # Move to quarantined store so engineer can re-enable after deploying the fix
+        self._quarantined[report_id] = action
+
         self._audit(
             "quarantine_executed",
             report_id=report_id,
@@ -203,6 +220,30 @@ class TiresiasOrchestrator:
                 f"Re-enable {action.table_name} in Fivetran after deploying the dbt fix. "
                 f"{action.oracle_verdict.recommended_action}"
             ),
+        }
+
+    async def execute_reenabled(self, report_id: str) -> dict:
+        """Re-enable a quarantined table after the engineer deploys the dbt fix."""
+        action = self._quarantined.pop(report_id, None)
+        if action is None:
+            raise KeyError(f"No quarantined action for report_id={report_id!r}")
+
+        reenable_result = await self._mcp.reenable_table(
+            action.connector_id, action.schema_name, action.table_name
+        )
+        self._audit(
+            "reenable_executed",
+            report_id=report_id,
+            connector_id=action.connector_id,
+            schema_name=action.schema_name,
+            table_name=action.table_name,
+        )
+        return {
+            "status": "reenabled",
+            "report_id": report_id,
+            "mcp_tool": "modify_connection_table_config",
+            "reenabled": f"{action.schema_name}.{action.table_name}",
+            "fivetran_response": reenable_result,
         }
 
     def execute_dismissed(self, report_id: str) -> dict:

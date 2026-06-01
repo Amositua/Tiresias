@@ -146,6 +146,23 @@ class LineageGraph:
             edges=edges,
         )
 
+    def get_models_sql(self, model_names: list[str]) -> list[dict]:
+        """Return raw SQL and file path for each named model node."""
+        result = []
+        for uid, node in self._nodes.items():
+            if node.get("resource_type") != "model":
+                continue
+            name = node.get("name", "")
+            if name not in model_names:
+                continue
+            sql = node.get("raw_code") or node.get("raw_sql") or ""
+            result.append({
+                "name": name,
+                "file_path": node.get("original_file_path") or node.get("path") or f"models/{name}.sql",
+                "sql": sql,
+            })
+        return result
+
     def _find_source(self, source_table: str) -> str | None:
         """Match a source node by table name or 'source_name.table_name'."""
         for uid, node in self._nodes.items():

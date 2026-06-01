@@ -36,6 +36,18 @@ class _GeminiClassification(BaseModel):
     blast_radius_summary: str
 
 
+class FixSuggestion(BaseModel):
+    model_name: str
+    file_path: str
+    original_snippet: str   # the exact line(s) that will break
+    fixed_snippet: str      # the corrected replacement
+    explanation: str        # why this fix is correct
+
+
+class _GeminiFixes(BaseModel):
+    fixes: list[FixSuggestion]
+
+
 class OracleVerdict(BaseModel):
     classification: DriftClassification
     confidence: float = Field(ge=0.0, le=1.0)
@@ -46,6 +58,7 @@ class OracleVerdict(BaseModel):
     model_used: str
     baseline_fingerprint_count: int
     baseline_includes_synthetic: bool
+    suggested_fixes: list[FixSuggestion] = Field(default_factory=list)
     thought_text: str | None = Field(default=None, exclude=True)  # audit only
 
 
@@ -120,6 +133,44 @@ class OracleAgent:
             baseline_includes_synthetic=drift_report.baseline_includes_synthetic,
             thought_text=thought_text,
         )
+
+
+    def generate_fix(
+        self,
+        verdict: OracleVerdict,
+        blast_radius: "BlastRadius",  # type: ignore[name-defined]
+        models_sql: list[dict],
+    ) -> list[FixSuggestion]:
+        """Second Gemini pass: read affected dbt model SQL and generate corrected code."""
+        from google.genai import types
+
+        if not models_sql:
+            return []
+
+        client = self._get_client()
+        prompt = _build_fix_prompt(verdict, blast_radius, models_sql)
+
+        response = client.models.generate_content(
+            model=self._model,
+            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=_GeminiFixes,
+                temperature=0.2,
+                max_output_tokens=2048,
+            ),
+        )
+
+        if response.parsed is not None:
+            return response.parsed.fixes
+        raw_part = next(
+            (p for p in reversed(response.candidates[0].content.parts)
+             if not getattr(p, "thought", False)),
+            None,
+        )
+        if raw_part is None:
+            return []
+        return _GeminiFixes.model_validate(json.loads(raw_part.text)).fixes
 
 
 def _parse_dist(s: str | None) -> dict[str, float]:
@@ -282,4 +333,41 @@ NORMAL_SEASONAL
 - affected_columns: list only columns where is_anomalous is true.
 - recommended_action: a specific, engineer-actionable fix — not generic advice.
 - blast_radius_summary: one sentence describing downstream risk including any named owner.
+"""
+
+
+def _build_fix_prompt(verdict: OracleVerdict, blast_radius: "BlastRadius", models_sql: list[dict]) -> str:  # type: ignore[name-defined]
+    models_block = "\n\n".join(
+        f"### {m['name']}  ({m['file_path']})\n```sql\n{m['sql']}\n```"
+        for m in models_sql
+    )
+    disappeared = []
+    appeared = []
+    if blast_radius.changed_column and verdict.affected_columns:
+        col = blast_radius.changed_column
+        disappeared = [c for c in verdict.affected_columns if "disappeared" in verdict.reasoning.lower()]
+
+    return f"""You are Oracle, a data quality engineer for the Tiresias monitoring system.
+
+A SILENT_SEMANTIC_FAILURE was detected:
+
+Table: {blast_radius.source_table}
+Column that drifted: {blast_radius.changed_column}
+Oracle's reasoning: {verdict.reasoning}
+
+The following dbt models are downstream of the broken table and reference the drifted column.
+For EACH model, identify the exact SQL snippet that will break because of the rename, and
+write the corrected replacement.
+
+{models_block}
+
+## INSTRUCTIONS
+
+For each model:
+- original_snippet: copy the exact lines from the SQL above that contain the broken filter or reference
+- fixed_snippet: the corrected replacement lines (preserve indentation exactly)
+- explanation: one sentence explaining why this fix is correct (reference the stable column or ID if applicable)
+
+Only include models where you can identify a concrete line that breaks. If a model has no
+direct string-literal reference to the renamed value, omit it.
 """

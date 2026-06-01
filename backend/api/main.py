@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from lineage.graph import BlastRadius, LineageGraph
-from oracle.inference import OracleAgent
+from oracle.inference import FixSuggestion, OracleAgent
 from tiresias.orchestrator import PendingAction, TiresiasOrchestrator
 
 log = structlog.get_logger(__name__)
@@ -190,6 +190,7 @@ class VerdictResponse(BaseModel):
     schema_removed: list[str]
     dist_baseline: dict[str, float]
     dist_current: dict[str, float]
+    suggested_fixes: list[FixSuggestion]
 
 
 def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
@@ -247,6 +248,7 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
         schema_removed=dr.schema_delta.removed if dr else [],
         dist_baseline=dr.max_psi_baseline_dist if dr else {},
         dist_current=dr.max_psi_current_dist if dr else {},
+        suggested_fixes=v.suggested_fixes,
     )
 
 
@@ -274,7 +276,7 @@ async def approve_or_dismiss(report_id: str, request: Request) -> dict:
     body = await request.json()
     action = body.get("action")
 
-    if action not in {"approve", "dismiss", "investigate"}:
+    if action not in {"approve", "dismiss", "investigate", "reenable"}:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action!r}")
 
     orch = _require_orchestrator()
@@ -290,6 +292,12 @@ async def approve_or_dismiss(report_id: str, request: Request) -> dict:
             return orch.execute_dismissed(report_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="No pending action for this report_id")
+
+    if action == "reenable":
+        try:
+            return await orch.execute_reenabled(report_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="No quarantined action for this report_id")
 
     log.info("investigate_flagged", report_id=report_id)
     return {"status": "flagged_for_investigation", "report_id": report_id}
@@ -364,6 +372,66 @@ def monitoring_summary() -> dict:
 def monitoring_psi_trend() -> dict:
     orch = _require_orchestrator()
     return {"data": list(orch._psi_log), "threshold": 0.25}
+
+
+@app.get("/monitoring/connector-health")
+async def monitoring_connector_health() -> dict:
+    """Return all tables in the connector with enabled status and Tiresias coverage."""
+    orch = _require_orchestrator()
+    connector_id = os.environ.get("FIVETRAN_CONNECTOR_ID", "wanderer_financing")
+    dataset = os.environ.get("BIGQUERY_HUBSPOT_DATASET", "hubspot")
+
+    try:
+        schema_config = await orch._mcp.get_schema_config(connector_id)
+    except Exception as exc:
+        log.warning("connector_health_schema_failed", error=str(exc))
+        return {"tables": [], "connector_id": connector_id, "error": str(exc)}
+
+    schemas = schema_config.get("data", {}).get("schemas", {})
+    tables_out = []
+
+    for schema_name, schema_data in schemas.items():
+        if not isinstance(schema_data, dict):
+            continue
+        for table_name, table_data in schema_data.get("tables", {}).items():
+            if not isinstance(table_data, dict):
+                continue
+            tables_out.append({
+                "schema": schema_name,
+                "table": table_name,
+                "enabled": table_data.get("enabled", False),
+                "has_baseline": False,  # filled below
+            })
+
+    # Check which tables have stored fingerprints in BigQuery
+    if orch._memory is not None:
+        try:
+            covered = set()
+            import google.cloud.bigquery as bq
+            sql = f"""
+                SELECT DISTINCT dataset_id || '.' || table_name AS key
+                FROM `{orch._memory._fingerprints_table}`
+                WHERE dataset_id = @dataset
+            """
+            job_config = bq.QueryJobConfig(
+                query_parameters=[bq.ScalarQueryParameter("dataset", "STRING", dataset)]
+            )
+            rows = list(orch._memory._client.query(sql, job_config=job_config).result())
+            covered = {r["key"] for r in rows}
+            for t in tables_out:
+                t["has_baseline"] = f"{t['schema']}.{t['table']}" in covered or t["table"] in {k.split(".")[-1] for k in covered}
+        except Exception as exc:
+            log.warning("connector_health_coverage_failed", error=str(exc))
+
+    tables_out.sort(key=lambda t: (not t["has_baseline"], not t["enabled"], t["table"]))
+    covered_count = sum(1 for t in tables_out if t["has_baseline"])
+    return {
+        "connector_id": connector_id,
+        "total_tables": len(tables_out),
+        "monitored_tables": covered_count,
+        "coverage_pct": round(covered_count / len(tables_out) * 100) if tables_out else 0,
+        "tables": tables_out,
+    }
 
 
 @app.get("/monitoring/freshness")

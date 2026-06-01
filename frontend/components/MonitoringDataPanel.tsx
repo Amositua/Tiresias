@@ -10,7 +10,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import { MonitoringSummary, PsiTrendPoint, TableFreshness } from "@/lib/types";
+import { MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth } from "@/lib/types";
 
 // ── PSI trend chart ────────────────────────────────────────────────────────
 
@@ -149,6 +149,21 @@ function PSITrendChart({
           </AreaChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  );
+}
+
+// ── Connector health inline ───────────────────────────────────────────────
+
+import ConnectorHealthPanel from "@/components/ConnectorHealthPanel";
+
+function ConnectorHealthPanelInline({ data }: { data: ConnectorHealth }) {
+  return (
+    <div>
+      <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-4 font-sans">
+        Connector Coverage · {data.connector_id}
+      </div>
+      <ConnectorHealthPanel data={data} />
     </div>
   );
 }
@@ -310,10 +325,12 @@ export default function MonitoringDataPanel({
   summary,
   trend,
   freshness,
+  connectorHealth,
 }: {
   summary: MonitoringSummary | null;
   trend: PsiTrendPoint[];
   freshness: TableFreshness[];
+  connectorHealth: ConnectorHealth | null;
 }) {
   const isAnomalous = summary?.is_anomalous ?? false;
   const trendColumn = trend.length > 0 ? trend[trend.length - 1].column : null;
@@ -338,6 +355,13 @@ export default function MonitoringDataPanel({
       <div className="border-t border-navy-700 pt-6">
         <TableHealthSection isAnomalous={isAnomalous} />
       </div>
+
+      {/* Connector health */}
+      {connectorHealth && (
+        <div className="border-t border-navy-700 pt-6">
+          <ConnectorHealthPanelInline data={connectorHealth} />
+        </div>
+      )}
 
       {/* Idle state indicator */}
       <IdleState />

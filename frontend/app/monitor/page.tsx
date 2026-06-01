@@ -5,7 +5,8 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import VerdictPanel from "@/components/VerdictPanel";
 import MonitoringDataPanel from "@/components/MonitoringDataPanel";
-import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness } from "@/lib/types";
+import ConnectorHealthPanel from "@/components/ConnectorHealthPanel";
+import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth } from "@/lib/types";
 
 const LineageGraph = dynamic(() => import("@/components/LineageGraph"), {
   ssr: false,
@@ -58,6 +59,7 @@ export default function Monitor() {
   const [summary, setSummary] = useState<MonitoringSummary | null>(null);
   const [trend, setTrend] = useState<PsiTrendPoint[]>([]);
   const [freshness, setFreshness] = useState<TableFreshness[]>([]);
+  const [connectorHealth, setConnectorHealth] = useState<ConnectorHealth | null>(null);
   const dismissedRef = useRef<Set<string>>(new Set());
   const activeReportRef = useRef<string | null>(null);
 
@@ -109,6 +111,11 @@ export default function Monitor() {
         const f = await fetch("/api/monitoring/freshness").then((r) => r.json());
         setFreshness(f.tables ?? []);
       } catch { /* ignore */ }
+
+      try {
+        const ch = await fetch("/api/monitoring/connector-health").then((r) => r.json());
+        if (ch.tables) setConnectorHealth(ch);
+      } catch { /* ignore */ }
     }
 
     poll();
@@ -127,6 +134,19 @@ export default function Monitor() {
       throw new Error(err.detail ?? `HTTP ${res.status}`);
     }
     setGraphState("quarantined");
+  }, []);
+
+  const handleReenable = useCallback(async (reportId: string) => {
+    const res = await fetch(`/api/approve/${reportId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reenable" }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail ?? `HTTP ${res.status}`);
+    }
+    setGraphState("monitoring");
   }, []);
 
   const handleDismiss = useCallback(async (reportId: string) => {
@@ -193,8 +213,8 @@ export default function Monitor() {
       <div className="flex border-b border-navy-700 bg-navy-900/50 flex-shrink-0 h-28">
         <MetricCard
           label="Tables Monitored"
-          value={String(summary?.tables_watched ?? "—")}
-          sub={`PSI threshold ${summary?.psi_threshold ?? 0.25} · 7-day baseline`}
+          value={connectorHealth ? String(connectorHealth.monitored_tables) : String(summary?.tables_watched ?? "—")}
+          sub={connectorHealth ? `${connectorHealth.coverage_pct}% of ${connectorHealth.total_tables} connector tables` : `PSI threshold ${summary?.psi_threshold ?? 0.25}`}
         />
         <MetricCard
           label="Active Incidents"
@@ -248,9 +268,9 @@ export default function Monitor() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
             {verdict ? (
-              <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
+              <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} onReenable={handleReenable} />
             ) : (
-              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} />
+              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} />
             )}
           </div>
         </div>

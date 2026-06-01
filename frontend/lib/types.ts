@@ -39,6 +39,15 @@ export type Verdict = {
   schema_removed: string[];
   dist_baseline: Record<string, number>;
   dist_current: Record<string, number>;
+  suggested_fixes: FixSuggestion[];
+};
+
+export type FixSuggestion = {
+  model_name: string;
+  file_path: string;
+  original_snippet: string;
+  fixed_snippet: string;
+  explanation: string;
 };
 
 export type MonitoringSummary = {
@@ -58,6 +67,21 @@ export type PsiTrendPoint = {
   column: string | null;
   table: string;
   is_anomalous: boolean;
+};
+
+export type ConnectorTable = {
+  schema: string;
+  table: string;
+  enabled: boolean;
+  has_baseline: boolean;
+};
+
+export type ConnectorHealth = {
+  connector_id: string;
+  total_tables: number;
+  monitored_tables: number;
+  coverage_pct: number;
+  tables: ConnectorTable[];
 };
 
 export type TableFreshness = {

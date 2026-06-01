@@ -88,3 +88,19 @@ class FivetranMCPClient:
             },
             allow_writes=True,
         )
+
+    async def reenable_table(
+        self, connection_id: str, schema_name: str, table_name: str
+    ) -> dict:
+        """Re-enable a previously quarantined table. Requires FIVETRAN_ALLOW_WRITES subprocess."""
+        return await self._call(
+            "modify_connection_table_config",
+            {
+                "schema_file": _SCHEMA_MODIFY_TABLE,
+                "connection_id": connection_id,
+                "schema_name": schema_name,
+                "table_name": table_name,
+                "request_body": json.dumps({"enabled": True}),
+            },
+            allow_writes=True,
+        )

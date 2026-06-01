@@ -242,7 +242,13 @@ export default function Monitor() {
             <span className="flex items-center gap-1.5"><span className="w-2 h-px bg-cream-300/20 inline-block" /> model</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-px bg-cream-300/20 inline-block" /> exposure</span>
           </div>
-          <LineageGraph graphNodes={graphNodes} graphEdges={graphEdges} state={graphState} />
+          <LineageGraph
+            graphNodes={graphNodes}
+            graphEdges={graphEdges}
+            state={graphState}
+            psiScore={verdict?.psi_score}
+            psiThreshold={verdict?.psi_threshold}
+          />
         </div>
 
         {/* Right: Oracle panel */}

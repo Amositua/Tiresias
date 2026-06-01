@@ -15,6 +15,10 @@ import {
   useEdgesState,
   NodeProps,
   MarkerType,
+  BaseEdge,
+  EdgeProps,
+  getSmoothStepPath,
+  useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { GraphNode, GraphEdge } from "@/lib/types";
@@ -22,272 +26,365 @@ import { GraphNode, GraphEdge } from "@/lib/types";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type NodeState = "monitoring" | "anomalous" | "quarantined";
-type TNodeData = GraphNode & { nodeState: NodeState };
+type TNodeData = GraphNode & { nodeState: NodeState; psiScore?: number; psiThreshold?: number };
 
-// ── Colour config ──────────────────────────────────────────────────────────────
+// ── Palette ────────────────────────────────────────────────────────────────────
 
-const SEVERITY_ACCENT: Record<string, string> = {
+const SEV_COLOR: Record<string, string> = {
   flagged:  "#C9933A",
-  critical: "#EF4444",
-  high:     "#F59E0B",
-  medium:   "#EAB308",
-  low:      "#4A5568",
+  critical: "#F87171",
+  high:     "#FBBF24",
+  medium:   "#FDE68A",
+  low:      "#4B5563",
 };
 
-const SEVERITY_TEXT: Record<string, string> = {
-  flagged:  "#C9933A",
-  critical: "#FCA5A5",
-  high:     "#FCD34D",
-  medium:   "#FEF08A",
-  low:      "#6B7280",
-};
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
-const TYPE_LABEL: Record<string, string> = {
-  source:   "Source Table",
-  model:    "dbt Model",
-  exposure: "Exposure",
-};
+function PsiBar({ score, threshold }: { score: number; threshold: number }) {
+  const pct   = Math.min((score / (threshold * 9)) * 100, 100);
+  const over  = score > threshold;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 10, color: "#4B5563", letterSpacing: "0.08em", textTransform: "uppercase" }}>PSI</span>
+        <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, color: over ? "#C9933A" : "#4B5563" }}>
+          {score.toFixed(3)}&nbsp;/&nbsp;{threshold}
+        </span>
+      </div>
+      <div style={{ height: 5, borderRadius: 3, background: "#060918", overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          width: `${pct}%`,
+          borderRadius: 3,
+          background: over
+            ? "linear-gradient(90deg, #C9933A 0%, #F59E0B 100%)"
+            : "linear-gradient(90deg, #1E2D5A 0%, #2B4090 100%)",
+          transition: "width 1s ease, background 0.6s ease",
+          boxShadow: over ? "0 0 8px rgba(201,147,58,0.5)" : "none",
+        }} />
+      </div>
+      {over && (
+        <div style={{ marginTop: 4, fontSize: 10, color: "#C9933A", fontWeight: 700, letterSpacing: "0.08em" }}>
+          {(score / threshold).toFixed(1)}× ABOVE THRESHOLD
+        </div>
+      )}
+    </div>
+  );
+}
 
-const TYPE_ICON: Record<string, string> = {
-  source:   "⬡",   // hexagon = data store
-  model:    "⬡",
-  exposure: "▣",
-};
+function ColumnChip({ name, drifted }: { name: string; drifted: boolean }) {
+  return (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 3,
+      fontSize: 10,
+      fontFamily: "monospace",
+      padding: "2px 7px",
+      borderRadius: 4,
+      border: `1px solid ${drifted ? "rgba(201,147,58,0.5)" : "rgba(255,255,255,0.07)"}`,
+      background: drifted ? "rgba(201,147,58,0.12)" : "rgba(255,255,255,0.03)",
+      color: drifted ? "#E8C87A" : "#374151",
+      fontWeight: drifted ? 700 : 400,
+      whiteSpace: "nowrap",
+    }}>
+      {drifted && <span style={{ color: "#C9933A" }}>◆</span>}
+      {name}
+    </span>
+  );
+}
+
+function NodeDot({ active, color }: { active: boolean; color: string }) {
+  return (
+    <span style={{ position: "relative", display: "inline-flex", width: 8, height: 8 }}>
+      {active && (
+        <span style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "50%",
+          background: color,
+          opacity: 0.4,
+          animation: "ping 1.4s cubic-bezier(0,0,0.2,1) infinite",
+        }} />
+      )}
+      <span style={{
+        position: "relative",
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: color,
+        display: "inline-block",
+      }} />
+    </span>
+  );
+}
 
 // ── Node component ─────────────────────────────────────────────────────────────
 
 function TiresiasNode({ data }: NodeProps) {
   const d = data as TNodeData;
-  const isSource   = d.node_type === "source";
-  const isExposure = d.node_type === "exposure";
-  const isModel    = d.node_type === "model";
+  const { node_type: type, nodeState, severity, label, owner, references_column } = d;
 
-  const anomalous    = d.nodeState === "anomalous";
-  const quarantined  = d.nodeState === "quarantined";
+  const isSource   = type === "source";
+  const isExposure = type === "exposure";
+  const anomalous  = nodeState === "anomalous";
+  const quarantined = nodeState === "quarantined";
 
-  const accentColor = quarantined && isSource
-    ? "#EF4444"
-    : anomalous && isSource
-      ? "#C9933A"
-      : SEVERITY_ACCENT[d.severity] ?? "#1A2142";
+  const accentColor =
+    quarantined && isSource ? "#F87171" :
+    anomalous && isSource   ? "#C9933A" :
+    SEV_COLOR[severity] ?? "#1E2D5A";
 
-  const borderColor = quarantined && isSource
-    ? "#EF4444"
-    : anomalous && isSource
-      ? "#C9933A"
-      : "#243060";
+  const bgGrad =
+    quarantined && isSource
+      ? "linear-gradient(145deg, #1A0808 0%, #0D0606 100%)"
+      : anomalous && isSource
+        ? "linear-gradient(145deg, #1C1305 0%, #0D0A03 100%)"
+        : "linear-gradient(145deg, #0D1229 0%, #080D1E 100%)";
 
-  const bgColor = quarantined && isSource
-    ? "#1A0808"
-    : anomalous && isSource
-      ? "#1C1508"
-      : "#0D1229";
+  const boxShadow =
+    quarantined && isSource
+      ? "0 0 32px rgba(248,113,113,0.25), 0 4px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)"
+      : anomalous && isSource
+        ? "0 0 32px rgba(201,147,58,0.3), 0 4px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)"
+        : "0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)";
 
-  const glowStyle: React.CSSProperties = anomalous && isSource
-    ? { boxShadow: "0 0 24px rgba(201,147,58,0.35), 0 0 8px rgba(201,147,58,0.2)" }
-    : quarantined && isSource
-      ? { boxShadow: "0 0 24px rgba(239,68,68,0.3)" }
-      : {};
+  const SOURCE_COLS = ["label", "stage_id", "probability", "is_closed"];
+
+  const typeLabel =
+    isSource   ? "Fivetran Source" :
+    isExposure ? "Exposure · Dashboard" : "dbt Model";
+
+  const subLabel =
+    isSource   ? "hubspot  ·  7 rows" :
+    isExposure ? "" :
+    label === "stg_deals" ? "staging layer" : "marts layer";
+
+  const dotColor =
+    quarantined && isSource ? "#F87171" :
+    anomalous && isSource   ? "#C9933A" : "#22C55E";
 
   return (
     <div
+      className={anomalous && isSource ? "node-anomalous" : ""}
       style={{
-        display: "flex",
-        minWidth: "210px",
-        maxWidth: "240px",
-        borderRadius: "10px",
-        border: `1.5px solid ${borderColor}`,
+        minWidth: isSource ? 280 : 240,
+        maxWidth: isSource ? 300 : 260,
+        borderRadius: 12,
+        border: `1.5px solid ${accentColor}${anomalous || quarantined ? "" : "44"}`,
+        background: bgGrad,
+        boxShadow,
         overflow: "hidden",
-        background: bgColor,
-        transition: "all 0.5s ease",
         fontFamily: "var(--font-inter), system-ui, sans-serif",
-        ...glowStyle,
+        transition: "box-shadow 0.6s ease, border-color 0.6s ease",
       }}
     >
-      {/* Left accent strip */}
-      <div
-        style={{
-          width: "4px",
-          background: accentColor,
-          flexShrink: 0,
-          transition: "background 0.5s ease",
-        }}
-      />
+      {/* Top accent bar */}
+      <div style={{
+        height: 3,
+        background: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor}44 100%)`,
+      }} />
 
-      {/* Main content */}
-      <div style={{ padding: "12px 14px", flex: 1, minWidth: 0 }}>
-        {/* Handles */}
+      <div style={{ padding: "14px 16px" }}>
+        {/* Handle — target */}
         {!isSource && (
           <Handle
             type="target"
             position={Position.Left}
             style={{
+              width: 12, height: 12,
               background: accentColor,
-              border: `2px solid ${bgColor}`,
-              width: 10,
-              height: 10,
+              border: "3px solid #080D1E",
+              boxShadow: `0 0 8px ${accentColor}88`,
               left: -7,
             }}
           />
         )}
 
-        {/* Type badge row */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-          <span style={{ fontSize: "11px", color: accentColor, opacity: 0.8 }}>
-            {TYPE_ICON[d.node_type]}
+        {/* Header row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: `${accentColor}CC`,
+          }}>
+            {typeLabel}
           </span>
-          <span
-            style={{
-              fontSize: "10px",
-              color: accentColor,
-              fontWeight: 700,
-              letterSpacing: "0.10em",
-              textTransform: "uppercase",
-            }}
-          >
-            {TYPE_LABEL[d.node_type] ?? d.node_type}
-          </span>
+          <NodeDot active={anomalous || nodeState === "monitoring"} color={dotColor} />
         </div>
 
         {/* Node name */}
-        <div
-          style={{
-            fontSize: "13.5px",
-            fontWeight: 600,
-            color: quarantined || anomalous ? "#F2EDE4" : "#C8BFB0",
-            wordBreak: "break-word",
-            lineHeight: 1.3,
-            marginBottom: "4px",
-            transition: "color 0.5s ease",
-          }}
-        >
-          {d.label}
+        <div style={{
+          fontSize: 15,
+          fontWeight: 700,
+          color: "#F2EDE4",
+          lineHeight: 1.3,
+          wordBreak: "break-word",
+          marginBottom: subLabel ? 4 : 8,
+        }}>
+          {label}
         </div>
 
-        {/* Schema context */}
+        {/* Sub-label */}
+        {subLabel && (
+          <div style={{
+            fontSize: 11,
+            fontFamily: "monospace",
+            color: "#374151",
+            marginBottom: 10,
+            letterSpacing: "0.04em",
+          }}>
+            {subLabel}
+          </div>
+        )}
+
+        {/* Source: column chips */}
         {isSource && (
-          <div style={{ fontSize: "11px", color: "#4A5568", fontFamily: "monospace", marginBottom: "6px" }}>
-            hubspot.{d.label}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+            {SOURCE_COLS.map((col) => (
+              <ColumnChip key={col} name={col} drifted={anomalous && col === "label"} />
+            ))}
           </div>
         )}
 
-        {/* Column reference indicator */}
-        {d.references_column && (
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "4px",
-              fontSize: "10px",
-              color: anomalous ? "#C9933A" : "#6B7280",
-              background: anomalous ? "rgba(201,147,58,0.08)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${anomalous ? "rgba(201,147,58,0.2)" : "rgba(255,255,255,0.08)"}`,
-              borderRadius: "4px",
-              padding: "2px 6px",
-              marginBottom: "6px",
-              fontWeight: 600,
-              letterSpacing: "0.04em",
-            }}
-          >
-            <span style={{ color: anomalous ? "#C9933A" : "#6B7280" }}>◆</span>
-            references label
+        {/* Source: PSI bar */}
+        {isSource && (d.psiScore ?? 0) > 0 && (
+          <PsiBar score={d.psiScore!} threshold={d.psiThreshold ?? 0.25} />
+        )}
+
+        {/* Model: references-column badge */}
+        {references_column && !isSource && (
+          <div style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 10,
+            fontWeight: 700,
+            color: anomalous ? "#C9933A" : "#374151",
+            background: anomalous ? "rgba(201,147,58,0.1)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${anomalous ? "rgba(201,147,58,0.3)" : "rgba(255,255,255,0.07)"}`,
+            borderRadius: 5,
+            padding: "3px 8px",
+            marginBottom: 8,
+            letterSpacing: "0.06em",
+          }}>
+            <span style={{ color: anomalous ? "#C9933A" : "#374151" }}>◆</span>
+            joins on label column
           </div>
         )}
 
-        {/* Owner */}
-        {d.owner && (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#7C8BAD",
-              marginBottom: "4px",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-          >
-            <span style={{ opacity: 0.6 }}>→</span>
-            {d.owner}
+        {/* Exposure: owner */}
+        {isExposure && owner && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: "#374151", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>
+              Owner
+            </div>
+            <div style={{ fontSize: 12, color: "#9CA3AF", fontWeight: 500 }}>
+              {owner}
+            </div>
           </div>
         )}
 
-        {/* Severity badge */}
+        {/* Exposure: impact note */}
+        {isExposure && anomalous && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 10,
+            color: "#FBBF24",
+            background: "rgba(251,191,36,0.08)",
+            border: "1px solid rgba(251,191,36,0.2)",
+            borderRadius: 5,
+            padding: "4px 8px",
+            marginBottom: 8,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+          }}>
+            <span>⚠</span> Revenue at risk · $0
+          </div>
+        )}
+
+        {/* Severity badge (non-source) */}
         {!isSource && (
-          <div
-            style={{
-              marginTop: "6px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "4px",
-              fontSize: "10px",
-              fontWeight: 700,
-              letterSpacing: "0.10em",
-              textTransform: "uppercase",
-              color: SEVERITY_TEXT[d.severity] ?? "#6B7280",
-            }}
-          >
-            <span
-              style={{
-                width: "5px",
-                height: "5px",
-                borderRadius: "50%",
-                background: SEVERITY_ACCENT[d.severity] ?? "#6B7280",
-                display: "inline-block",
-              }}
-            />
-            {d.severity}
+          <div style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            marginTop: 2,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.10em",
+            textTransform: "uppercase",
+            color: SEV_COLOR[severity] ?? "#4B5563",
+          }}>
+            <span style={{
+              width: 6, height: 6,
+              borderRadius: "50%",
+              background: SEV_COLOR[severity] ?? "#4B5563",
+              display: "inline-block",
+              boxShadow: `0 0 6px ${SEV_COLOR[severity] ?? "#4B5563"}88`,
+            }} />
+            {severity} impact
           </div>
         )}
 
-        {/* Anomaly indicator on source */}
-        {anomalous && isSource && (
-          <div
-            style={{
-              marginTop: "8px",
-              padding: "4px 8px",
-              background: "rgba(201,147,58,0.12)",
-              border: "1px solid rgba(201,147,58,0.25)",
-              borderRadius: "4px",
-              fontSize: "10px",
-              fontWeight: 700,
-              color: "#C9933A",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-            }}
-          >
-            PSI drift detected
+        {/* Source: quarantined state */}
+        {isSource && quarantined && (
+          <div style={{
+            marginTop: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 10px",
+            borderRadius: 6,
+            background: "rgba(248,113,113,0.1)",
+            border: "1px solid rgba(248,113,113,0.3)",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#FCA5A5",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#F87171", display: "inline-block" }} />
+            Sync Disabled
           </div>
         )}
 
-        {/* Quarantine badge */}
-        {quarantined && isSource && (
-          <div
-            style={{
-              marginTop: "8px",
-              padding: "4px 8px",
-              background: "rgba(239,68,68,0.12)",
-              border: "1px solid rgba(239,68,68,0.3)",
-              borderRadius: "4px",
-              fontSize: "10px",
-              fontWeight: 700,
-              color: "#FCA5A5",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-            }}
-          >
-            Sync disabled
+        {/* Source: anomalous state */}
+        {isSource && anomalous && !quarantined && (
+          <div style={{
+            marginTop: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 10px",
+            borderRadius: 6,
+            background: "rgba(201,147,58,0.1)",
+            border: "1px solid rgba(201,147,58,0.3)",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#C9933A",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#C9933A", display: "inline-block", animation: "ping 1.4s infinite" }} />
+            Drift Detected
           </div>
         )}
 
+        {/* Handle — source */}
         {!isExposure && (
           <Handle
             type="source"
             position={Position.Right}
             style={{
+              width: 12, height: 12,
               background: accentColor,
-              border: `2px solid ${bgColor}`,
-              width: 10,
-              height: 10,
+              border: "3px solid #080D1E",
+              boxShadow: `0 0 8px ${accentColor}88`,
               right: -7,
             }}
           />
@@ -297,21 +394,109 @@ function TiresiasNode({ data }: NodeProps) {
   );
 }
 
+// ── Custom edge ────────────────────────────────────────────────────────────────
+
+function TiresiasEdge({
+  id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition,
+  style, markerEnd, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, data,
+}: EdgeProps & { data?: { animated?: boolean } }) {
+  const [path, labelX, labelY] = getSmoothStepPath({
+    sourceX, sourceY, sourcePosition,
+    targetX, targetY, targetPosition,
+    borderRadius: 16,
+  });
+
+  const animated = style?.stroke === "#C9933A";
+
+  return (
+    <>
+      <defs>
+        <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={animated ? "#C9933A" : "#1E2D5A"} stopOpacity="1" />
+          <stop offset="100%" stopColor={animated ? "#F59E0B" : "#243060"} stopOpacity="0.8" />
+        </linearGradient>
+        {animated && (
+          <filter id={`glow-${id}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        )}
+      </defs>
+
+      {/* Glow layer when animated */}
+      {animated && (
+        <path
+          d={path}
+          fill="none"
+          stroke="#C9933A"
+          strokeWidth={6}
+          strokeOpacity={0.15}
+          filter={`url(#glow-${id})`}
+        />
+      )}
+
+      <BaseEdge
+        path={path}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke: `url(#grad-${id})`,
+          strokeWidth: animated ? 2.5 : 2,
+          filter: animated ? `url(#glow-${id})` : undefined,
+        }}
+      />
+
+      {/* Edge label */}
+      {label && (
+        <g transform={`translate(${labelX},${labelY})`}>
+          <rect
+            x={-28} y={-10}
+            width={56} height={20}
+            rx={4} ry={4}
+            fill="#060918"
+            fillOpacity={0.95}
+            stroke={animated ? "rgba(201,147,58,0.3)" : "rgba(255,255,255,0.07)"}
+            strokeWidth={1}
+          />
+          <text
+            textAnchor="middle"
+            dominantBaseline="middle"
+            style={{
+              fontSize: 9,
+              fontFamily: "monospace",
+              fill: animated ? "#C9933A" : "#374151",
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            {label}
+          </text>
+        </g>
+      )}
+    </>
+  );
+}
+
 const nodeTypes = { tiresiasNode: TiresiasNode as React.ComponentType<NodeProps> };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const edgeTypes: any = { tiresiasEdge: TiresiasEdge };
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 function buildLayout(
   graphNodes: GraphNode[],
   graphEdges: GraphEdge[],
-  state: NodeState
+  state: NodeState,
+  psiScore?: number,
+  psiThreshold?: number
 ): [Node[], Edge[]] {
   if (graphNodes.length === 0) return [[], []];
 
   const source = graphNodes.find((n) => n.node_type === "source");
   if (!source) return [[], []];
 
-  // BFS hop distances
   const hopMap: Record<string, number> = { [source.id]: 0 };
   const queue = [source.id];
   while (queue.length > 0) {
@@ -330,8 +515,8 @@ function buildLayout(
     byHop[h] = [...(byHop[h] ?? []), n];
   }
 
-  const HORIZ = 290;
-  const VERT  = 160;
+  const HORIZ = 320;
+  const VERT  = 180;
 
   const flowNodes: Node[] = graphNodes.map((n) => {
     const hop      = hopMap[n.id] ?? 0;
@@ -345,40 +530,38 @@ function buildLayout(
         x: hop * HORIZ,
         y: (idx - (siblings.length - 1) / 2) * VERT,
       },
-      data: { ...n, nodeState },
+      data: {
+        ...n,
+        nodeState,
+        psiScore:     n.node_type === "source" ? (psiScore ?? 0) : undefined,
+        psiThreshold: n.node_type === "source" ? (psiThreshold ?? 0.25) : undefined,
+      },
       type: "tiresiasNode",
       draggable: false,
     };
   });
 
-  // Edges — find which edges connect to nodes that reference the column
   const referencingTargets = new Set(
     graphNodes.filter((n) => n.references_column).map((n) => n.id)
   );
 
-  const flowEdges: Edge[] = graphEdges.map((e) => {
-    const isColumnEdge = referencingTargets.has(e.target);
+  const anomalous = state === "anomalous";
+  const quarantined = state === "quarantined";
+
+  const flowEdges: Edge[] = graphEdges.map((e, i) => {
+    const isHot = referencingTargets.has(e.target);
     return {
       id: `e-${e.source}-${e.target}`,
       source: e.source,
       target: e.target,
-      type: "smoothstep",
+      type: "tiresiasEdge",
       animated: false,
-      label: isColumnEdge ? "via label" : undefined,
-      labelStyle: {
-        fill: "#6B7280",
-        fontSize: 10,
-        fontFamily: "monospace",
-        fontWeight: 600,
-      },
-      labelBgStyle: { fill: "#0D1229", fillOpacity: 0.9 },
-      labelBgPadding: [4, 6] as [number, number],
-      labelBgBorderRadius: 3,
+      label: isHot && anomalous ? "via label" : undefined,
       markerEnd: {
         type: MarkerType.ArrowClosed,
         color: "#243060",
-        width: 16,
-        height: 16,
+        width: 14,
+        height: 14,
       },
       style: { stroke: "#243060", strokeWidth: 2 },
     };
@@ -387,29 +570,31 @@ function buildLayout(
   return [flowNodes, flowEdges];
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
 type Props = {
   graphNodes: GraphNode[];
   graphEdges: GraphEdge[];
   state: NodeState;
+  psiScore?: number;
+  psiThreshold?: number;
 };
 
-export default function LineageGraph({ graphNodes, graphEdges, state }: Props) {
+export default function LineageGraph({ graphNodes, graphEdges, state, psiScore, psiThreshold }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
 
   useEffect(() => {
-    const [fn, fe] = buildLayout(graphNodes, graphEdges, state);
+    const [fn, fe] = buildLayout(graphNodes, graphEdges, state, psiScore, psiThreshold);
     setNodes(fn);
 
-    const baseEdges = fe.map((e) => ({
+    const base = fe.map((e) => ({
       ...e,
       animated: false,
-      style: { stroke: "#243060", strokeWidth: 2 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#243060", width: 16, height: 16 },
+      style: { stroke: "#1E2D5A", strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#1E2D5A", width: 14, height: 14 },
     }));
-    setEdges(baseEdges);
+    setEdges(base);
 
     if (state !== "anomalous") return;
 
@@ -423,7 +608,7 @@ export default function LineageGraph({ graphNodes, graphEdges, state }: Props) {
                   ...e,
                   animated: true,
                   style: { stroke: "#C9933A", strokeWidth: 2.5 },
-                  markerEnd: { type: MarkerType.ArrowClosed, color: "#C9933A", width: 16, height: 16 },
+                  markerEnd: { type: MarkerType.ArrowClosed, color: "#C9933A", width: 14, height: 14 },
                 }
               : e
           )
@@ -434,7 +619,7 @@ export default function LineageGraph({ graphNodes, graphEdges, state }: Props) {
 
     return () => timeouts.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphNodes, graphEdges, state]);
+  }, [graphNodes, graphEdges, state, psiScore]);
 
   return (
     <div style={{ width: "100%", height: "100%" }}>
@@ -444,45 +629,48 @@ export default function LineageGraph({ graphNodes, graphEdges, state }: Props) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.3 }}
+        fitViewOptions={{ padding: 0.28 }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         panOnDrag
         zoomOnScroll
-        minZoom={0.3}
+        minZoom={0.25}
         maxZoom={2.5}
         proOptions={{ hideAttribution: true }}
       >
         <Background
           variant={BackgroundVariant.Lines}
-          color="#0F1830"
-          gap={32}
+          color="#0A0F24"
+          gap={40}
           size={1}
-          style={{ opacity: 0.6 }}
+          style={{ opacity: 0.8 }}
         />
         <Controls
           style={{
-            background: "#0D1229",
-            border: "1px solid #243060",
-            borderRadius: "8px",
+            background: "#080D1E",
+            border: "1px solid #1E2D5A",
+            borderRadius: 8,
             overflow: "hidden",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
           showInteractive={false}
         />
         <MiniMap
           nodeColor={(n) => {
             const d = n.data as TNodeData;
-            if (d.nodeState === "quarantined") return "#EF4444";
-            if (d.nodeState === "anomalous" && d.node_type === "source") return "#C9933A";
-            return SEVERITY_ACCENT[d.severity] ?? "#243060";
+            if (d.nodeState === "quarantined") return "#F87171";
+            if (d.nodeState === "anomalous") return "#C9933A";
+            return SEV_COLOR[d.severity] ?? "#1E2D5A";
           }}
-          maskColor="rgba(6,9,26,0.7)"
+          maskColor="rgba(4,7,18,0.75)"
           style={{
             background: "#06091A",
-            border: "1px solid #243060",
-            borderRadius: "8px",
+            border: "1px solid #1E2D5A",
+            borderRadius: 8,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
         />
       </ReactFlow>

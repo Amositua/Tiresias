@@ -37,4 +37,25 @@ export type Verdict = {
   anomaly_reason: string | null;
   schema_added: string[];
   schema_removed: string[];
+  dist_baseline: Record<string, number>;
+  dist_current: Record<string, number>;
+};
+
+export type MonitoringSummary = {
+  tables_watched: number;
+  active_incidents: number;
+  psi_threshold: number;
+  baseline_age_days: number;
+  latest_psi: number | null;
+  latest_psi_column: string | null;
+  latest_checked_at: string | null;
+  is_anomalous: boolean;
+};
+
+export type PsiTrendPoint = {
+  timestamp: string;
+  psi: number;
+  column: string | null;
+  table: string;
+  is_anomalous: boolean;
 };

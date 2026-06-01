@@ -2,6 +2,15 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Cell,
+  ResponsiveContainer,
+} from "recharts";
 import { Verdict } from "@/lib/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -203,6 +212,116 @@ function BlastRadiusSection({ verdict }: { verdict: Verdict }) {
   );
 }
 
+// ── Distribution shift chart ──────────────────────────────────────────────────
+
+function DistributionChart({
+  baseline,
+  current,
+  column,
+}: {
+  baseline: Record<string, number>;
+  current: Record<string, number>;
+  column: string | null;
+}) {
+  if (!column || (Object.keys(baseline).length === 0 && Object.keys(current).length === 0)) {
+    return null;
+  }
+
+  const allKeys = Array.from(new Set([...Object.keys(baseline), ...Object.keys(current)]));
+  // Sort: biggest movers first
+  const sorted = allKeys.sort((a, b) => {
+    const deltaA = Math.abs((current[a] ?? 0) - (baseline[a] ?? 0));
+    const deltaB = Math.abs((current[b] ?? 0) - (baseline[b] ?? 0));
+    return deltaB - deltaA;
+  });
+
+  const rows = sorted.slice(0, 8).map((k) => ({
+    name: k.length > 22 ? k.slice(0, 20) + "…" : k,
+    fullName: k,
+    baseline: parseFloat(((baseline[k] ?? 0) * 100).toFixed(1)),
+    current: parseFloat(((current[k] ?? 0) * 100).toFixed(1)),
+    delta: (current[k] ?? 0) - (baseline[k] ?? 0),
+  }));
+
+  return (
+    <div className="px-6 py-4 border-b border-navy-700">
+      <div className="text-[10px] text-cream-300/40 uppercase tracking-widest mb-3">
+        Distribution shift · {column}
+      </div>
+      <div className="flex items-center gap-4 mb-3 text-[10px] font-mono">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-navy-700 inline-block" />
+          <span className="text-cream-300/40">baseline</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-gold-400 inline-block" />
+          <span className="text-cream-300/40">current</span>
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={rows.length * 28 + 8}>
+        <BarChart
+          layout="vertical"
+          data={rows}
+          margin={{ top: 0, right: 32, left: 0, bottom: 0 }}
+          barCategoryGap={6}
+          barGap={2}
+        >
+          <XAxis
+            type="number"
+            domain={[0, 100]}
+            tick={{ fill: "#C8BFB0", fontSize: 9, fontFamily: "monospace" }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v) => `${v}%`}
+            tickCount={5}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            tick={{ fill: "#C8BFB0", fontSize: 9, fontFamily: "monospace" }}
+            tickLine={false}
+            axisLine={false}
+            width={100}
+          />
+          <Tooltip
+            cursor={{ fill: "rgba(255,255,255,0.03)" }}
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              const d = payload[0].payload;
+              return (
+                <div className="bg-navy-900 border border-navy-700 rounded px-3 py-2 text-xs font-mono shadow-lg">
+                  <div className="text-cream-300/60 mb-1 text-[11px]">{d.fullName}</div>
+                  <div className="text-cream-300/40">Baseline: {d.baseline}%</div>
+                  <div className={`${d.delta > 0 ? "text-emerald-400" : d.delta < 0 ? "text-red-400" : "text-cream-300/40"}`}>
+                    Current: {d.current}%
+                    {d.delta !== 0 && ` (${d.delta > 0 ? "+" : ""}${(d.delta * 100).toFixed(1)}pp)`}
+                  </div>
+                </div>
+              );
+            }}
+          />
+          <Bar dataKey="baseline" name="Baseline" radius={[0, 2, 2, 0]}>
+            {rows.map((r) => (
+              <Cell
+                key={r.fullName + "-b"}
+                fill={r.delta < -0.05 ? "rgba(248,113,113,0.3)" : "#1A2142"}
+              />
+            ))}
+          </Bar>
+          <Bar dataKey="current" name="Current" radius={[0, 2, 2, 0]}>
+            {rows.map((r) => (
+              <Cell
+                key={r.fullName + "-c"}
+                fill={r.delta > 0.05 ? "#C9933A" : r.delta < -0.05 ? "rgba(248,113,113,0.2)" : "#2a3560"}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 type Props = {
@@ -294,6 +413,13 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
           <SchemaDelta
             added={verdict.schema_added}
             removed={verdict.schema_removed}
+          />
+
+          {/* ── Distribution shift chart ── */}
+          <DistributionChart
+            baseline={verdict.dist_baseline}
+            current={verdict.dist_current}
+            column={verdict.psi_column}
           />
 
           {/* ── Oracle's reasoning ── */}

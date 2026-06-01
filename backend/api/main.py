@@ -188,6 +188,8 @@ class VerdictResponse(BaseModel):
     anomaly_reason: str | None
     schema_added: list[str]
     schema_removed: list[str]
+    dist_baseline: dict[str, float]
+    dist_current: dict[str, float]
 
 
 def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
@@ -243,6 +245,8 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
         anomaly_reason=dr.anomaly_reason if dr else None,
         schema_added=dr.schema_delta.added if dr else [],
         schema_removed=dr.schema_delta.removed if dr else [],
+        dist_baseline=dr.max_psi_baseline_dist if dr else {},
+        dist_current=dr.max_psi_current_dist if dr else {},
     )
 
 
@@ -336,6 +340,30 @@ WHERE s.label = 'Contract Sent'
             f"  AND NOT d._fivetran_deleted"
         ),
     }
+
+
+# ── monitoring summary + PSI trend ────────────────────────────────────────────
+
+@app.get("/monitoring/summary")
+def monitoring_summary() -> dict:
+    orch = _require_orchestrator()
+    latest_entry = list(orch._psi_log)[-1] if orch._psi_log else None
+    return {
+        "tables_watched": 2,
+        "active_incidents": len(orch._pending),
+        "psi_threshold": 0.25,
+        "baseline_age_days": 7,
+        "latest_psi": latest_entry["psi"] if latest_entry else None,
+        "latest_psi_column": latest_entry["column"] if latest_entry else None,
+        "latest_checked_at": latest_entry["timestamp"] if latest_entry else None,
+        "is_anomalous": latest_entry["is_anomalous"] if latest_entry else False,
+    }
+
+
+@app.get("/monitoring/psi-trend")
+def monitoring_psi_trend() -> dict:
+    orch = _require_orchestrator()
+    return {"data": list(orch._psi_log), "threshold": 0.25}
 
 
 # ── fingerprints (stub) ───────────────────────────────────────────────────────

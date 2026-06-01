@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -55,6 +56,7 @@ class TiresiasOrchestrator:
         self._mcp = mcp_client
         self._config = config
         self._pending: dict[str, PendingAction] = {}
+        self._psi_log: deque[dict] = deque(maxlen=200)  # rolling PSI history
 
     async def handle_sync_completed(
         self,
@@ -86,6 +88,15 @@ class TiresiasOrchestrator:
             if self._memory is None:
                 raise ValueError("fingerprinter required when drift_report is not provided")
             drift_report = self._run_memory(connector_id, dataset, table)
+
+        # Append to rolling PSI log regardless of anomaly state
+        self._psi_log.append({
+            "timestamp": drift_report.computed_at.isoformat(),
+            "psi": drift_report.max_psi_score,
+            "column": drift_report.max_psi_column,
+            "table": table,
+            "is_anomalous": drift_report.is_anomalous,
+        })
 
         if not drift_report.is_anomalous:
             self._audit("no_anomaly", connector_id=connector_id, table=table)

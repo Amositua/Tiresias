@@ -103,6 +103,8 @@ class DriftReport(BaseModel):
     column_drifts: list[ColumnDrift]
     is_anomalous: bool
     anomaly_reason: str | None = None
+    max_psi_current_dist: dict[str, float] = Field(default_factory=dict)
+    max_psi_baseline_dist: dict[str, float] = Field(default_factory=dict)
 
 
 def compute_psi(
@@ -507,6 +509,15 @@ class BigQueryFingerprinter:
         max_psi = psi_scores[max_psi_col] if max_psi_col else 0.0
         overall = max_psi
 
+        # Capture distributions for the max PSI column so the UI can show before/after
+        max_psi_current_dist: dict[str, float] = {}
+        max_psi_baseline_dist: dict[str, float] = {}
+        if max_psi_col:
+            col_fp = next((c for c in current.columns if c.name == max_psi_col), None)
+            if col_fp and col_fp.psi_distribution:
+                max_psi_current_dist = dict(col_fp.psi_distribution)
+                max_psi_baseline_dist = _average_distributions(baseline, max_psi_col)
+
         rc_z = _row_count_zscore(current.row_count, baseline)
 
         is_anomalous = (
@@ -548,4 +559,6 @@ class BigQueryFingerprinter:
             column_drifts=drifts,
             is_anomalous=is_anomalous,
             anomaly_reason=reason,
+            max_psi_current_dist=max_psi_current_dist,
+            max_psi_baseline_dist=max_psi_baseline_dist,
         )

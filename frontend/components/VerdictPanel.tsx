@@ -243,57 +243,6 @@ function BlastRadiusSection({ verdict }: { verdict: Verdict }) {
   );
 }
 
-// ── Billing anomaly metrics ────────────────────────────────────────────────
-
-function BillingAnomalyMetrics({ verdict }: { verdict: Verdict }) {
-  if (verdict.classification !== "BILLING_ANOMALY") return null;
-  const { current_row_count, baseline_row_count, extra_rows } = verdict;
-  if (!current_row_count) return null;
-
-  const multiplier = baseline_row_count && baseline_row_count > 0
-    ? (current_row_count / baseline_row_count).toFixed(1)
-    : "—";
-
-  return (
-    <div className="px-6 py-5 border-b border-navy-700 bg-amber-400/5">
-      <SectionLabel>Row Count Spike — Billing Impact</SectionLabel>
-      <div className="grid grid-cols-3 gap-6 mb-5">
-        <div>
-          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-2">Current Rows</div>
-          <div className="text-3xl font-bold text-amber-400 tabular-nums leading-none">
-            {current_row_count.toLocaleString()}
-          </div>
-          <div className="text-xs text-cream-300/40 font-mono mt-1.5">this sync</div>
-        </div>
-        <div>
-          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-2">Baseline Avg</div>
-          <div className="text-3xl font-bold text-cream-300/60 tabular-nums leading-none">
-            {baseline_row_count?.toLocaleString() ?? "—"}
-          </div>
-          <div className="text-xs text-cream-300/40 font-mono mt-1.5">7-day average</div>
-        </div>
-        <div>
-          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-2">Row Multiplier</div>
-          <div className="text-3xl font-bold text-amber-400 tabular-nums leading-none">
-            {multiplier}×
-          </div>
-          <div className="text-xs text-cream-300/40 font-mono mt-1.5">vs baseline</div>
-        </div>
-      </div>
-
-      <div className="bg-navy-900 border border-amber-400/20 rounded-lg px-4 py-3">
-        <div className="text-xs text-amber-400/70 uppercase tracking-widest mb-2">Fivetran MAR Impact</div>
-        <p className="text-sm text-cream-300/70 leading-relaxed">
-          Fivetran bills on <strong className="text-cream-100">Monthly Active Rows</strong>. This sync introduced{" "}
-          <strong className="text-amber-400">{extra_rows?.toLocaleString() ?? "—"} extra rows</strong> above the
-          7-day baseline. At {multiplier}× volume, your next invoice will reflect this spike in full.
-          Fivetran does not alert on row explosions — Tiresias caught this before your billing cycle closes.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ── Proposed action ────────────────────────────────────────────────────────
 
 function ProposedAction({ verdict }: { verdict: Verdict }) {
@@ -332,27 +281,14 @@ function ApproveButton({
     }
   }
 
-  const isBilling = verdict.classification === "BILLING_ANOMALY";
-
   if (state === "done") {
     return (
       <div className="text-center space-y-2">
-        <div className={`text-lg font-semibold tracking-wide ${isBilling ? "text-amber-400" : "text-emerald-400"}`}>
-          {isBilling ? "Marked as Investigated" : "Quarantine Executed"}
+        <div className="text-lg font-semibold text-emerald-400 tracking-wide">Quarantine Executed</div>
+        <div className="text-sm font-mono text-cream-300/50">{verdict.proposed_mcp_action}</div>
+        <div className="text-sm text-cream-300/40 mt-2">
+          Table disabled at Fivetran source. No further syncs until re-enabled.
         </div>
-        {!isBilling && (
-          <>
-            <div className="text-sm font-mono text-cream-300/50">{verdict.proposed_mcp_action}</div>
-            <div className="text-sm text-cream-300/40 mt-2">
-              Table disabled at Fivetran source. No further syncs until re-enabled.
-            </div>
-          </>
-        )}
-        {isBilling && (
-          <div className="text-sm text-cream-300/40 mt-2">
-            Alert acknowledged. Review your Fivetran sync configuration to prevent further row explosion.
-          </div>
-        )}
       </div>
     );
   }
@@ -373,15 +309,9 @@ function ApproveButton({
       <button
         onClick={handleApprove}
         disabled={state === "loading"}
-        className={`flex-1 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-base py-3.5 px-6 rounded-lg transition-colors tracking-wide ${
-          isBilling
-            ? "bg-amber-400 hover:bg-amber-300 text-navy-950"
-            : "bg-gold-400 hover:bg-gold-200 text-navy-950"
-        }`}
+        className="flex-1 bg-gold-400 hover:bg-gold-200 disabled:opacity-50 disabled:cursor-not-allowed text-navy-950 font-bold text-base py-3.5 px-6 rounded-lg transition-colors tracking-wide"
       >
-        {state === "loading"
-          ? isBilling ? "Recording…" : "Executing quarantine…"
-          : isBilling ? "Mark as Investigated" : "Approve Quarantine"}
+        {state === "loading" ? "Executing quarantine…" : "Approve Quarantine"}
       </button>
       <button
         onClick={() => onDismiss(verdict.report_id)}
@@ -417,7 +347,7 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
       <div className="px-6 py-6 border-b border-navy-700 bg-navy-900/40">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <div className={`text-xs font-semibold uppercase tracking-widest mb-3 ${verdict.classification === "SILENT_SEMANTIC_FAILURE" ? "text-red-400" : verdict.classification === "BILLING_ANOMALY" ? "text-amber-400" : "text-gold-400"}`}>
+            <div className={`text-xs font-semibold uppercase tracking-widest mb-3 ${verdict.classification === "SILENT_SEMANTIC_FAILURE" ? "text-red-400" : "text-gold-400"}`}>
               {CLASSIFICATION_LABEL[verdict.classification] ?? verdict.classification}
             </div>
             <div className="font-serif text-2xl text-cream-100 leading-snug mb-3">
@@ -446,17 +376,12 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
       {/* PSI metric */}
       <PsiMetric verdict={verdict} />
 
-      {/* Billing anomaly metrics (shown instead of distribution chart for cost events) */}
-      <BillingAnomalyMetrics verdict={verdict} />
-
-      {/* Distribution chart (data quality events only) */}
-      {verdict.classification !== "BILLING_ANOMALY" && (
-        <DistributionChart
-          baseline={verdict.dist_baseline}
-          current={verdict.dist_current}
-          column={verdict.psi_column}
-        />
-      )}
+      {/* Distribution chart */}
+      <DistributionChart
+        baseline={verdict.dist_baseline}
+        current={verdict.dist_current}
+        column={verdict.psi_column}
+      />
 
       {/* Schema delta */}
       <SchemaDelta added={verdict.schema_added} removed={verdict.schema_removed} />

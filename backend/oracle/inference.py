@@ -24,7 +24,6 @@ class DriftClassification(str, Enum):
     BENIGN_GROWTH = "BENIGN_GROWTH"
     SILENT_SEMANTIC_FAILURE = "SILENT_SEMANTIC_FAILURE"
     UPSTREAM_DATA_QUALITY = "UPSTREAM_DATA_QUALITY"
-    BILLING_ANOMALY = "BILLING_ANOMALY"
 
 
 class _GeminiClassification(BaseModel):
@@ -270,13 +269,6 @@ NORMAL_SEASONAL
   Key signature: metric frequency shifts that correlate with time of week, month, or quarter;
   no value disappears from the distribution; total cardinality stable.
 
-BILLING_ANOMALY
-  A sudden, anomalous spike in row count with no corresponding change in data distributions.
-  Key signature: row count Z-score > 2.5 AND all column PSI scores are low (< 0.5) — the
-  table has many more rows than the baseline but the data shape is unchanged. This indicates
-  row multiplication at the Fivetran source (full re-syncs, fan-out joins, or incorrect
-  incremental key configuration), which directly increases Fivetran Monthly Active Row billing.
-  No data quality issue is present; the data is correct but volume is unexpectedly high.
 
 ## INSTRUCTIONS
 
@@ -288,10 +280,6 @@ BILLING_ANOMALY
   and inconsistent with all others. Lower confidence when multiple explanations are plausible,
   the signal is weak, or the baseline is small.
 - affected_columns: list only columns where is_anomalous is true.
-- recommended_action: a specific, engineer-actionable fix — not generic advice. For
-  BILLING_ANOMALY, recommend how to fix the Fivetran sync config to stop the row explosion.
+- recommended_action: a specific, engineer-actionable fix — not generic advice.
 - blast_radius_summary: one sentence describing downstream risk including any named owner.
-  For BILLING_ANOMALY, frame the risk in terms of cost impact and billing surprise.
-- For BILLING_ANOMALY: affected_columns should be empty (no column-level issue), confidence
-  should reflect how clearly the row spike pattern matches this category vs. organic growth.
 """

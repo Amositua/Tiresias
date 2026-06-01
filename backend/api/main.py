@@ -112,69 +112,6 @@ def health() -> dict:
 _DEV_TRIGGERS = os.environ.get("TIRESIAS_DEV_TRIGGERS", "").lower() == "true"
 
 
-@app.post("/dev/simulate-billing")
-async def dev_simulate_billing(request: Request) -> dict:
-    """Inject a synthetic row-explosion DriftReport to demo BILLING_ANOMALY detection.
-
-    Only active when TIRESIAS_DEV_TRIGGERS=true.
-    """
-    if not _DEV_TRIGGERS:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    from memory.fingerprint import (
-        ColumnDrift, ColumnFingerprint, DriftReport, SchemaDelta, TableFingerprint,
-    )
-    import uuid as _uuid
-
-    payload = await request.json()
-    connector_id = payload.get("connector_id", "wanderer_financing")
-    schema = payload.get("schema", "hubspot")
-    table = payload.get("table", "deal")
-    multiplier = float(payload.get("multiplier", 4.8))  # how many × baseline rows
-
-    baseline_rows = 100
-    current_rows = int(baseline_rows * multiplier)
-
-    col = ColumnFingerprint(
-        name="id",
-        data_type="STRING",
-        null_pct=0.0,
-        distinct_count=current_rows,
-    )
-    current_fp = TableFingerprint(
-        connection_id=connector_id,
-        project_id=os.environ.get("GOOGLE_CLOUD_PROJECT", "tiresias-496915"),
-        dataset_id=schema,
-        table_name=table,
-        row_count=current_rows,
-        schema_hash="abc123",
-        columns=[col],
-    )
-
-    drift_report = DriftReport(
-        report_id=str(_uuid.uuid4()),
-        connection_id=connector_id,
-        project_id=os.environ.get("GOOGLE_CLOUD_PROJECT", "tiresias-496915"),
-        dataset_id=schema,
-        table_name=table,
-        current_fingerprint=current_fp,
-        baseline_fingerprint_count=7,
-        baseline_includes_synthetic=False,
-        overall_drift_score=0.02,
-        max_psi_column=None,
-        max_psi_score=0.02,
-        row_count_z_score=round(multiplier - 1, 2),
-        schema_delta=SchemaDelta(),
-        column_drifts=[],
-        is_anomalous=True,
-        anomaly_reason=f"row count Z-score={round(multiplier - 1, 2):.2f} — {current_rows:,} rows vs baseline ~{baseline_rows:,}",
-    )
-
-    log.info("dev_simulate_billing", connector_id=connector_id, table=f"{schema}.{table}", multiplier=multiplier)
-    orch = _require_orchestrator()
-    return await orch.handle_sync_completed(connector_id, schema, table, drift_report=drift_report)
-
-
 @app.post("/dev/trigger")
 async def dev_trigger(request: Request) -> dict:
     """Run the full pipeline without Fivetran signature verification.
@@ -253,10 +190,6 @@ class VerdictResponse(BaseModel):
     schema_removed: list[str]
     dist_baseline: dict[str, float]
     dist_current: dict[str, float]
-    # billing anomaly fields
-    current_row_count: int | None
-    baseline_row_count: int | None
-    extra_rows: int | None
 
 
 def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
@@ -314,16 +247,6 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
         schema_removed=dr.schema_delta.removed if dr else [],
         dist_baseline=dr.max_psi_baseline_dist if dr else {},
         dist_current=dr.max_psi_current_dist if dr else {},
-        current_row_count=dr.current_fingerprint.row_count if dr else None,
-        baseline_row_count=(
-            round(dr.current_fingerprint.row_count / max(dr.row_count_z_score, 0.01))
-            if dr and dr.row_count_z_score > 0.1 else
-            (dr.current_fingerprint.row_count if dr else None)
-        ),
-        extra_rows=(
-            max(dr.current_fingerprint.row_count - round(dr.current_fingerprint.row_count / max(dr.row_count_z_score, 0.01)), 0)
-            if dr and dr.row_count_z_score > 0.1 else 0
-        ),
     )
 
 

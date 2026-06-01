@@ -115,8 +115,7 @@ class TiresiasOrchestrator:
             confidence=verdict.confidence,
         )
 
-        actionable = {DriftClassification.SILENT_SEMANTIC_FAILURE, DriftClassification.BILLING_ANOMALY}
-        if verdict.classification not in actionable:
+        if verdict.classification != DriftClassification.SILENT_SEMANTIC_FAILURE:
             return {
                 "status": "no_action_needed",
                 "classification": verdict.classification.value,
@@ -129,22 +128,11 @@ class TiresiasOrchestrator:
             schema_name = "unknown"
             log.warning("schema_name_not_found", table=table, connector_id=connector_id)
 
-        if verdict.classification == DriftClassification.BILLING_ANOMALY:
-            baseline_rows = int(
-                drift_report.current_fingerprint.row_count / max(drift_report.row_count_z_score, 1)
-            ) if drift_report.row_count_z_score > 0 else drift_report.current_fingerprint.row_count
-            extra_rows = max(drift_report.current_fingerprint.row_count - baseline_rows, 0)
-            proposed_fix = (
-                f"Investigate row count spike in {schema_name}.{table}: "
-                f"{drift_report.current_fingerprint.row_count:,} rows synced vs baseline ~{baseline_rows:,} "
-                f"({extra_rows:,} extra rows). {verdict.recommended_action}"
-            )
-        else:
-            proposed_fix = (
-                f"Quarantine {table} at Fivetran source (enabled=false on schema '{schema_name}'). "
-                f"No future syncs of this table will reach BigQuery until re-enabled. "
-                f"Engineer fix: {verdict.recommended_action}"
-            )
+        proposed_fix = (
+            f"Quarantine {table} at Fivetran source (enabled=false on schema '{schema_name}'). "
+            f"No future syncs of this table will reach BigQuery until re-enabled. "
+            f"Engineer fix: {verdict.recommended_action}"
+        )
 
         action = PendingAction(
             report_id=drift_report.report_id,

@@ -39,10 +39,6 @@ export type Verdict = {
   schema_removed: string[];
   dist_baseline: Record<string, number>;
   dist_current: Record<string, number>;
-  // billing anomaly
-  current_row_count: number | null;
-  baseline_row_count: number | null;
-  extra_rows: number | null;
 };
 
 export type MonitoringSummary = {

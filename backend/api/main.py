@@ -191,6 +191,8 @@ class VerdictResponse(BaseModel):
     dist_baseline: dict[str, float]
     dist_current: dict[str, float]
     suggested_fixes: list[FixSuggestion]
+    github_pr_url: str | None
+    github_pr_number: int | None
 
 
 def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
@@ -249,6 +251,8 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
         dist_baseline=dr.max_psi_baseline_dist if dr else {},
         dist_current=dr.max_psi_current_dist if dr else {},
         suggested_fixes=v.suggested_fixes,
+        github_pr_url=action.github_pr_url,
+        github_pr_number=action.github_pr_number,
     )
 
 
@@ -329,7 +333,7 @@ SELECT
 FROM `{project}.hubspot.deal` d
 JOIN `{project}.hubspot.deal_pipeline_stage` s
   ON d.deal_pipeline_stage_id = s.stage_id
-WHERE s.label = 'Contract Sent'
+WHERE s.stage_id = 'contractsent'
   AND NOT d._fivetran_deleted
 """
     client = bq.Client(project=project)
@@ -344,7 +348,7 @@ WHERE s.label = 'Contract Sent'
             f"FROM `{project}.hubspot.deal` d\n"
             f"JOIN `{project}.hubspot.deal_pipeline_stage` s\n"
             f"  ON d.deal_pipeline_stage_id = s.stage_id\n"
-            f"WHERE s.label = 'Contract Sent'\n"
+            f"WHERE s.stage_id = 'contractsent'\n"
             f"  AND NOT d._fivetran_deleted"
         ),
     }
@@ -372,6 +376,29 @@ def monitoring_summary() -> dict:
 def monitoring_psi_trend() -> dict:
     orch = _require_orchestrator()
     return {"data": list(orch._psi_log), "threshold": 0.25}
+
+
+@app.get("/monitoring/pr-status/{report_id}")
+async def monitoring_pr_status(report_id: str) -> dict:
+    """Check GitHub PR status and auto-re-enable table if PR was merged."""
+    orch = _require_orchestrator()
+    return await orch.check_pr_and_reenable(report_id)
+
+
+@app.get("/monitoring/quarantined")
+def monitoring_quarantined() -> dict:
+    """Return all quarantined actions with their PR info."""
+    orch = _require_orchestrator()
+    result = []
+    for report_id, action in orch._quarantined.items():
+        result.append({
+            "report_id": report_id,
+            "table": f"{action.schema_name}.{action.table_name}",
+            "github_pr_url": action.github_pr_url,
+            "github_pr_number": action.github_pr_number,
+            "created_at": action.created_at.isoformat(),
+        })
+    return {"quarantined": result}
 
 
 @app.get("/monitoring/connector-health")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -29,6 +30,9 @@ class PendingAction:
     blast_radius: BlastRadius | None = None
     drift_report: DriftReport | None = None
     psi_threshold: float = PSI_WATCH
+    github_pr_url: str | None = None
+    github_pr_number: int | None = None
+    github_branch: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -195,7 +199,35 @@ class TiresiasOrchestrator:
             action.connector_id, action.schema_name, action.table_name
         )
 
-        # Move to quarantined store so engineer can re-enable after deploying the fix
+        # Auto-create GitHub PR with the generated fix
+        pr_url, pr_number, branch = None, None, None
+        fixes = action.oracle_verdict.suggested_fixes
+        if fixes:
+            try:
+                gh_token = os.environ.get("GITHUB_TOKEN", "")
+                gh_repo = os.environ.get("GITHUB_REPO", "")
+                if gh_token and gh_repo:
+                    from tiresias.github_client import GitHubClient
+                    gh = GitHubClient(gh_token, gh_repo)
+                    pr_info = gh.create_fix_pr(
+                        fixes=fixes,
+                        report_id=report_id,
+                        table=action.table_name,
+                        column=action.oracle_verdict.affected_columns[0] if action.oracle_verdict.affected_columns else "",
+                        reasoning=action.oracle_verdict.reasoning,
+                    )
+                    pr_url = pr_info["pr_url"]
+                    pr_number = pr_info["pr_number"]
+                    branch = pr_info["branch"]
+                    self._audit("github_pr_created", pr_url=pr_url, pr_number=pr_number)
+            except Exception as exc:
+                log.warning("github_pr_failed", error=str(exc))
+
+        action.github_pr_url = pr_url
+        action.github_pr_number = pr_number
+        action.github_branch = branch
+
+        # Move to quarantined store — will auto-re-enable when PR is merged
         self._quarantined[report_id] = action
 
         self._audit(
@@ -216,10 +248,45 @@ class TiresiasOrchestrator:
             "mcp_tool": "modify_connection_table_config",
             "quarantined": f"{action.schema_name}.{action.table_name}",
             "fivetran_response": quarantine_result,
-            "next_step": (
-                f"Re-enable {action.table_name} in Fivetran after deploying the dbt fix. "
-                f"{action.oracle_verdict.recommended_action}"
-            ),
+            "github_pr_url": pr_url,
+            "github_pr_number": pr_number,
+        }
+
+    async def check_pr_and_reenable(self, report_id: str) -> dict:
+        """Poll GitHub for PR merge status; auto-re-enable if merged."""
+        action = self._quarantined.get(report_id)
+        if action is None:
+            return {"status": "not_found"}
+
+        if not action.github_pr_number:
+            return {"status": "no_pr", "report_id": report_id}
+
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        gh_repo = os.environ.get("GITHUB_REPO", "")
+        if not gh_token or not gh_repo:
+            return {"status": "no_github_config"}
+
+        try:
+            from tiresias.github_client import GitHubClient
+            gh = GitHubClient(gh_token, gh_repo)
+            pr_state = gh.get_pr_state(action.github_pr_number)
+        except Exception as exc:
+            log.warning("pr_check_failed", error=str(exc))
+            return {"status": "check_failed", "error": str(exc)}
+
+        if pr_state["merged"]:
+            # PR merged — automatically re-enable the table
+            result = await self.execute_reenabled(report_id)
+            result["pr_merged_at"] = pr_state["merged_at"]
+            self._audit("auto_reenabled_after_pr_merge", report_id=report_id)
+            return result
+
+        return {
+            "status": "pr_open",
+            "report_id": report_id,
+            "pr_state": pr_state["state"],
+            "pr_url": pr_state["html_url"],
+            "pr_number": action.github_pr_number,
         }
 
     async def execute_reenabled(self, report_id: str) -> dict:

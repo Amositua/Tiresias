@@ -1,0 +1,16 @@
+name: tiresias_hubspot
+version: '1.0.0'
+config-version: 2
+
+profile: tiresias
+
+model-paths: ["models"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  tiresias_hubspot:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

@@ -40,6 +40,8 @@ export type Verdict = {
   dist_baseline: Record<string, number>;
   dist_current: Record<string, number>;
   suggested_fixes: FixSuggestion[];
+  github_pr_url: string | null;
+  github_pr_number: number | null;
 };
 
 export type FixSuggestion = {
@@ -82,6 +84,15 @@ export type ConnectorHealth = {
   monitored_tables: number;
   coverage_pct: number;
   tables: ConnectorTable[];
+};
+
+export type PrStatus = {
+  status: "pr_open" | "reenabled" | "no_pr" | "not_found" | "check_failed" | "no_github_config";
+  pr_url?: string;
+  pr_number?: number;
+  pr_state?: string;
+  pr_merged_at?: string;
+  quarantined?: string;
 };
 
 export type TableFreshness = {

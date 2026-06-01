@@ -133,20 +133,12 @@ export default function Monitor() {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail ?? `HTTP ${res.status}`);
     }
+    const data = await res.json();
     setGraphState("quarantined");
-  }, []);
-
-  const handleReenable = useCallback(async (reportId: string) => {
-    const res = await fetch(`/api/approve/${reportId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "reenable" }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail ?? `HTTP ${res.status}`);
-    }
-    setGraphState("monitoring");
+    return {
+      github_pr_url: data.github_pr_url ?? undefined,
+      github_pr_number: data.github_pr_number ?? undefined,
+    };
   }, []);
 
   const handleDismiss = useCallback(async (reportId: string) => {
@@ -268,7 +260,7 @@ export default function Monitor() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
             {verdict ? (
-              <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} onReenable={handleReenable} />
+              <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
             ) : (
               <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} />
             )}

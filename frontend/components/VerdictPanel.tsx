@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer,
 } from "recharts";
-import { Verdict, FixSuggestion } from "@/lib/types";
+import { Verdict, FixSuggestion, PrStatus } from "@/lib/types";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -326,78 +326,131 @@ function ProposedAction({ verdict }: { verdict: Verdict }) {
 
 // ── CTA ────────────────────────────────────────────────────────────────────
 
+type ApproveState =
+  | "idle"
+  | "loading"
+  | "quarantined"       // quarantined, PR being created
+  | "pr_open"           // PR exists, waiting for merge
+  | "pr_merged"         // PR merged, re-enabling
+  | "loop_closed"       // fully done
+  | "error";
+
 function ApproveButton({
   verdict,
   onApprove,
   onDismiss,
-  onReenable,
 }: {
   verdict: Verdict;
-  onApprove: (id: string) => Promise<void>;
+  onApprove: (id: string) => Promise<{ github_pr_url?: string; github_pr_number?: number }>;
   onDismiss: (id: string) => Promise<void>;
-  onReenable: (id: string) => Promise<void>;
 }) {
-  const [state, setState] = useState<"idle" | "loading" | "quarantined" | "reenabling" | "reenabled" | "error">("idle");
+  const [state, setState] = useState<ApproveState>("idle");
   const [errMsg, setErrMsg] = useState("");
+  const [prUrl, setPrUrl] = useState<string | null>(verdict.github_pr_url);
+  const [prNumber, setPrNumber] = useState<number | null>(verdict.github_pr_number);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start polling when PR is open
+  useEffect(() => {
+    if (state !== "pr_open" || !prNumber) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/monitoring/pr-status?report_id=${verdict.report_id}`);
+        const data: PrStatus = await res.json();
+        if (data.status === "reenabled" || data.pr_merged_at) {
+          clearInterval(pollRef.current!);
+          setState("loop_closed");
+        }
+      } catch { /* ignore */ }
+    }, 12000); // poll every 12 seconds
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [state, prNumber, verdict.report_id]);
 
   async function handleApprove() {
     setState("loading");
     try {
-      await onApprove(verdict.report_id);
-      setState("quarantined");
+      const result = await onApprove(verdict.report_id);
+      if (result.github_pr_url) {
+        setPrUrl(result.github_pr_url);
+        setPrNumber(result.github_pr_number ?? null);
+        setState("pr_open");
+      } else {
+        setState("quarantined");
+      }
     } catch {
       setState("error");
       setErrMsg("Execution failed — check backend logs");
     }
   }
 
-  async function handleReenable() {
-    setState("reenabling");
-    try {
-      await onReenable(verdict.report_id);
-      setState("reenabled");
-    } catch {
-      setState("error");
-      setErrMsg("Re-enable failed — check backend logs");
-    }
+  if (state === "loop_closed") {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center space-y-3"
+      >
+        <div className="text-xl font-serif text-gold-400">Loop Closed</div>
+        <div className="text-sm text-cream-300/60 leading-relaxed">
+          PR merged · Table re-enabled at Fivetran source ·
+          Next sync will run with the deployed fix
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (state === "pr_open" && prUrl) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-4"
+      >
+        {/* PR card */}
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-emerald-400 mb-1">
+                GitHub PR #{prNumber} opened
+              </div>
+              <div className="text-xs text-cream-300/50 leading-relaxed">
+                Fix committed to branch · Tiresias is watching for merge
+              </div>
+              <div className="text-xs text-cream-300/30 font-mono mt-1.5">
+                Auto-re-enable fires when PR is merged
+              </div>
+            </div>
+            <a
+              href={prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 text-xs bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 px-3 py-2 rounded transition-colors font-semibold"
+            >
+              View PR →
+            </a>
+          </div>
+        </div>
+
+        {/* Autonomous status */}
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-gold-400 opacity-60" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-gold-400" />
+          </span>
+          <span className="text-sm text-cream-300/50">
+            Monitoring PR · will re-enable automatically on merge
+          </span>
+        </div>
+      </motion.div>
+    );
   }
 
   if (state === "quarantined") {
     return (
-      <div className="space-y-4">
-        <div className="text-center space-y-1.5">
-          <div className="text-base font-semibold text-emerald-400 tracking-wide">Table Quarantined</div>
-          <div className="text-xs font-mono text-cream-300/50">{verdict.proposed_mcp_action}</div>
-          <div className="text-sm text-cream-300/40">No further syncs until re-enabled.</div>
-        </div>
-        <div className="border-t border-navy-700 pt-4">
-          <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3">After deploying the fix above</div>
-          <button
-            onClick={handleReenable}
-            className="w-full bg-navy-700 hover:bg-navy-900 border border-cream-300/20 hover:border-cream-300/40 text-cream-100 font-semibold text-sm py-3 px-6 rounded-lg transition-colors"
-          >
-            Mark Fix Deployed &amp; Re-enable Table
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (state === "reenabling") {
-    return (
-      <div className="text-center text-sm text-cream-300/50 font-mono py-2">
-        Re-enabling via Fivetran MCP…
-      </div>
-    );
-  }
-
-  if (state === "reenabled") {
-    return (
-      <div className="text-center space-y-2 py-2">
-        <div className="text-base font-semibold text-gold-400 tracking-wide">Loop Closed</div>
-        <div className="text-sm text-cream-300/50">
-          Table re-enabled at Fivetran source. Next sync will run with the deployed fix.
-        </div>
+      <div className="text-center space-y-2">
+        <div className="text-base font-semibold text-emerald-400">Table Quarantined</div>
+        <div className="text-xs font-mono text-cream-300/40">{verdict.proposed_mcp_action}</div>
+        <div className="text-sm text-cream-300/35 mt-1">No GitHub token configured — apply fix manually</div>
       </div>
     );
   }
@@ -436,12 +489,11 @@ function ApproveButton({
 
 type Props = {
   verdict: Verdict | null;
-  onApprove: (id: string) => Promise<void>;
+  onApprove: (id: string) => Promise<{ github_pr_url?: string; github_pr_number?: number }>;
   onDismiss: (id: string) => Promise<void>;
-  onReenable: (id: string) => Promise<void>;
 };
 
-export default function VerdictPanel({ verdict, onApprove, onDismiss, onReenable }: Props) {
+export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
   if (!verdict) return null;
 
   return (
@@ -515,7 +567,7 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss, onReenable
 
       {/* Approve CTA */}
       <div className="px-6 py-6">
-        <ApproveButton verdict={verdict} onApprove={onApprove} onDismiss={onDismiss} onReenable={onReenable} />
+        <ApproveButton verdict={verdict} onApprove={onApprove} onDismiss={onDismiss} />
       </div>
     </motion.div>
   );

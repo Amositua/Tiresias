@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import VerdictPanel from "@/components/VerdictPanel";
 import MonitoringDataPanel from "@/components/MonitoringDataPanel";
-import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint } from "@/lib/types";
+import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness } from "@/lib/types";
 
 const LineageGraph = dynamic(() => import("@/components/LineageGraph"), {
   ssr: false,
@@ -57,6 +57,7 @@ export default function Monitor() {
   const [graphState, setGraphState] = useState<GraphState>("monitoring");
   const [summary, setSummary] = useState<MonitoringSummary | null>(null);
   const [trend, setTrend] = useState<PsiTrendPoint[]>([]);
+  const [freshness, setFreshness] = useState<TableFreshness[]>([]);
   const dismissedRef = useRef<Set<string>>(new Set());
   const activeReportRef = useRef<string | null>(null);
 
@@ -102,6 +103,11 @@ export default function Monitor() {
       try {
         const t = await fetch("/api/monitoring/psi-trend").then((r) => r.json());
         setTrend(t.data ?? []);
+      } catch { /* ignore */ }
+
+      try {
+        const f = await fetch("/api/monitoring/freshness").then((r) => r.json());
+        setFreshness(f.tables ?? []);
       } catch { /* ignore */ }
     }
 
@@ -244,7 +250,7 @@ export default function Monitor() {
             {verdict ? (
               <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
             ) : (
-              <MonitoringDataPanel summary={summary} trend={trend} />
+              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} />
             )}
           </div>
         </div>

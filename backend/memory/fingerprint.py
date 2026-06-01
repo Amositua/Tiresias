@@ -430,6 +430,55 @@ class BigQueryFingerprinter:
             result.append(fp)
         return result
 
+    def get_table_freshness(
+        self,
+        dataset: str,
+        tables: list[str],
+        stale_threshold_seconds: int = 21_600,  # 6 hours default
+    ) -> list[dict]:
+        """Return last-modified time for each table from BigQuery metadata."""
+        import google.cloud.bigquery as bq
+
+        placeholders = ", ".join(f"'{t}'" for t in tables)
+        sql = f"""
+            SELECT
+                table_id,
+                TIMESTAMP_MILLIS(last_modified_time) AS last_modified_at,
+                row_count
+            FROM `{self._project}.{dataset}.__TABLES__`
+            WHERE table_id IN ({placeholders})
+        """
+        rows = list(self._client.query(sql).result())
+        now = datetime.now(timezone.utc)
+        by_table = {r["table_id"]: r for r in rows}
+
+        result = []
+        for table in tables:
+            row = by_table.get(table)
+            if row is None:
+                result.append({
+                    "table": table,
+                    "last_modified_at": None,
+                    "age_seconds": None,
+                    "row_count": None,
+                    "is_stale": False,
+                    "threshold_seconds": stale_threshold_seconds,
+                })
+                continue
+            last_mod = row["last_modified_at"]
+            if last_mod is not None:
+                last_mod = last_mod.replace(tzinfo=timezone.utc)
+            age = round((now - last_mod).total_seconds()) if last_mod else None
+            result.append({
+                "table": table,
+                "last_modified_at": last_mod.isoformat() if last_mod else None,
+                "age_seconds": age,
+                "row_count": row["row_count"],
+                "is_stale": age is not None and age > stale_threshold_seconds,
+                "threshold_seconds": stale_threshold_seconds,
+            })
+        return result
+
     def compare(
         self,
         current: TableFingerprint,

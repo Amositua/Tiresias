@@ -366,6 +366,24 @@ def monitoring_psi_trend() -> dict:
     return {"data": list(orch._psi_log), "threshold": 0.25}
 
 
+@app.get("/monitoring/freshness")
+def monitoring_freshness() -> dict:
+    orch = _require_orchestrator()
+    if orch._memory is None:
+        return {"tables": [], "threshold_seconds": 21_600}
+
+    dataset = os.environ.get("BIGQUERY_HUBSPOT_DATASET", "hubspot")
+    threshold = int(os.environ.get("FRESHNESS_THRESHOLD_SECONDS", "21600"))
+    tables = ["deal_pipeline_stage", "deal"]
+
+    try:
+        data = orch._memory.get_table_freshness(dataset, tables, threshold)
+        return {"tables": data, "threshold_seconds": threshold}
+    except Exception as exc:
+        log.warning("freshness_query_failed", error=str(exc))
+        return {"tables": [], "threshold_seconds": threshold, "error": str(exc)}
+
+
 # ── fingerprints (stub) ───────────────────────────────────────────────────────
 
 @app.get("/fingerprints")

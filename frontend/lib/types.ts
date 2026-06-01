@@ -59,3 +59,12 @@ export type PsiTrendPoint = {
   table: string;
   is_anomalous: boolean;
 };
+
+export type TableFreshness = {
+  table: string;
+  last_modified_at: string | null;
+  age_seconds: number | null;
+  row_count: number | null;
+  is_stale: boolean;
+  threshold_seconds: number;
+};

@@ -10,7 +10,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import { MonitoringSummary, PsiTrendPoint } from "@/lib/types";
+import { MonitoringSummary, PsiTrendPoint, TableFreshness } from "@/lib/types";
 
 // ── PSI trend chart ────────────────────────────────────────────────────────
 
@@ -153,6 +153,102 @@ function PSITrendChart({
   );
 }
 
+// ── Freshness section ─────────────────────────────────────────────────────
+
+function fmtAge(seconds: number | null): string {
+  if (seconds === null) return "—";
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
+  }
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function FreshnessBar({ age, threshold }: { age: number | null; threshold: number }) {
+  if (age === null) return <div className="h-1.5 bg-navy-700 rounded-full w-full" />;
+  const pct = Math.min((age / threshold) * 100, 100);
+  const color = pct >= 100 ? "bg-red-400" : pct >= 75 ? "bg-amber-400" : "bg-emerald-500";
+  return (
+    <div className="h-1.5 bg-navy-700 rounded-full w-full overflow-hidden">
+      <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function FreshnessSection({ tables }: { tables: TableFreshness[] }) {
+  if (tables.length === 0) {
+    return (
+      <div>
+        <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3 font-sans">
+          Sync Freshness
+        </div>
+        <div className="text-sm text-cream-300/30 font-mono py-2">
+          Freshness data unavailable — BigQuery not connected
+        </div>
+      </div>
+    );
+  }
+
+  const anyStale = tables.some((t) => t.is_stale);
+  const thresholdH = tables[0]
+    ? Math.round(tables[0].threshold_seconds / 3600)
+    : 6;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-cream-300/35 uppercase tracking-widest font-sans">
+          Sync Freshness
+        </div>
+        <div className="text-xs text-cream-300/25 font-mono">
+          stale after {thresholdH}h
+        </div>
+      </div>
+
+      {anyStale && (
+        <div className="flex items-center gap-2.5 mb-4 px-4 py-3 rounded-lg border border-amber-400/30 bg-amber-400/5">
+          <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+          <span className="text-sm text-amber-400/90">
+            One or more tables have not synced within the freshness threshold
+          </span>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {tables.map((t) => (
+          <div key={t.table}>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2.5">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.is_stale ? "bg-red-400" : t.age_seconds !== null && t.age_seconds > t.threshold_seconds * 0.75 ? "bg-amber-400" : "bg-emerald-500/80"}`} />
+                <span className="text-sm font-mono text-cream-100">{t.table}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {t.row_count !== null && (
+                  <span className="text-xs text-cream-300/35 font-mono">
+                    {t.row_count.toLocaleString()} rows
+                  </span>
+                )}
+                <span className={`text-sm font-mono font-medium ${t.is_stale ? "text-red-400" : "text-cream-300/60"}`}>
+                  {fmtAge(t.age_seconds)}
+                </span>
+              </div>
+            </div>
+            <FreshnessBar age={t.age_seconds} threshold={t.threshold_seconds} />
+            {t.last_modified_at && (
+              <div className="text-xs text-cream-300/25 font-mono mt-1">
+                Last sync: {new Date(t.last_modified_at).toLocaleString()}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Table health ───────────────────────────────────────────────────────────
 
 const WATCHED = [
@@ -213,17 +309,19 @@ function IdleState() {
 export default function MonitoringDataPanel({
   summary,
   trend,
+  freshness,
 }: {
   summary: MonitoringSummary | null;
   trend: PsiTrendPoint[];
+  freshness: TableFreshness[];
 }) {
   const isAnomalous = summary?.is_anomalous ?? false;
   const trendColumn = trend.length > 0 ? trend[trend.length - 1].column : null;
 
   return (
-    <div className="flex flex-col h-full p-6 gap-6 overflow-y-auto">
+    <div className="flex flex-col h-full p-6 gap-7 overflow-y-auto">
       {/* PSI trend chart */}
-      <div className="flex-shrink-0" style={{ height: "240px" }}>
+      <div className="flex-shrink-0" style={{ height: "220px" }}>
         <PSITrendChart
           data={trend}
           threshold={summary?.psi_threshold ?? 0.25}
@@ -231,8 +329,15 @@ export default function MonitoringDataPanel({
         />
       </div>
 
+      {/* Sync freshness */}
+      <div className="border-t border-navy-700 pt-6">
+        <FreshnessSection tables={freshness} />
+      </div>
+
       {/* Table health */}
-      <TableHealthSection isAnomalous={isAnomalous} />
+      <div className="border-t border-navy-700 pt-6">
+        <TableHealthSection isAnomalous={isAnomalous} />
+      </div>
 
       {/* Idle state indicator */}
       <IdleState />

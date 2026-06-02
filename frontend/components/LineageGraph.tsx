@@ -8,7 +8,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   Handle,
   Position,
   useNodesState,
@@ -657,21 +656,6 @@ export default function LineageGraph({ graphNodes, graphEdges, state, psiScore, 
             boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
           showInteractive={false}
-        />
-        <MiniMap
-          nodeColor={(n) => {
-            const d = n.data as TNodeData;
-            if (d.nodeState === "quarantined") return "#F87171";
-            if (d.nodeState === "anomalous") return "#C9933A";
-            return SEV_COLOR[d.severity] ?? "#1E2D5A";
-          }}
-          maskColor="rgba(4,7,18,0.75)"
-          style={{
-            background: "#06091A",
-            border: "1px solid #1E2D5A",
-            borderRadius: 8,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-          }}
         />
       </ReactFlow>
     </div>

@@ -45,8 +45,8 @@ function PsiBar({ score, threshold }: { score: number; threshold: number }) {
   return (
     <div style={{ marginTop: 10 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: "#4B5563", letterSpacing: "0.08em", textTransform: "uppercase" }}>PSI</span>
-        <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: over ? "#C9933A" : "#4B5563" }}>
+        <span style={{ fontSize: 13, color: "#4B5563", letterSpacing: "0.08em", textTransform: "uppercase" }}>PSI</span>
+        <span style={{ fontSize: 15, fontFamily: "monospace", fontWeight: 700, color: over ? "#C9933A" : "#4B5563" }}>
           {score.toFixed(3)}&nbsp;/&nbsp;{threshold}
         </span>
       </div>
@@ -63,7 +63,7 @@ function PsiBar({ score, threshold }: { score: number; threshold: number }) {
         }} />
       </div>
       {over && (
-        <div style={{ marginTop: 5, fontSize: 11, color: "#C9933A", fontWeight: 700, letterSpacing: "0.08em" }}>
+        <div style={{ marginTop: 6, fontSize: 13, color: "#C9933A", fontWeight: 700, letterSpacing: "0.08em" }}>
           {(score / threshold).toFixed(1)}× ABOVE THRESHOLD
         </div>
       )}
@@ -77,9 +77,9 @@ function ColumnChip({ name, drifted }: { name: string; drifted: boolean }) {
       display: "inline-flex",
       alignItems: "center",
       gap: 3,
-      fontSize: 12,
+      fontSize: 13,
       fontFamily: "monospace",
-      padding: "3px 9px",
+      padding: "4px 10px",
       borderRadius: 4,
       border: `1px solid ${drifted ? "rgba(201,147,58,0.5)" : "rgba(255,255,255,0.07)"}`,
       background: drifted ? "rgba(201,147,58,0.12)" : "rgba(255,255,255,0.03)",
@@ -167,8 +167,8 @@ function TiresiasNode({ data }: NodeProps) {
     <div
       className={anomalous && isSource ? "node-anomalous" : ""}
       style={{
-        minWidth: isSource ? 360 : 300,
-        maxWidth: isSource ? 380 : 320,
+        minWidth: isSource ? 420 : 360,
+        maxWidth: isSource ? 460 : 390,
         borderRadius: 14,
         border: `1.5px solid ${accentColor}${anomalous || quarantined ? "" : "44"}`,
         background: bgGrad,
@@ -184,7 +184,7 @@ function TiresiasNode({ data }: NodeProps) {
         background: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor}44 100%)`,
       }} />
 
-      <div style={{ padding: "18px 20px" }}>
+      <div style={{ padding: "22px 24px" }}>
         {/* Handle — target */}
         {!isSource && (
           <Handle
@@ -203,7 +203,7 @@ function TiresiasNode({ data }: NodeProps) {
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <span style={{
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.12em",
             textTransform: "uppercase",
@@ -216,12 +216,12 @@ function TiresiasNode({ data }: NodeProps) {
 
         {/* Node name */}
         <div style={{
-          fontSize: 19,
+          fontSize: 24,
           fontWeight: 700,
           color: "#F2EDE4",
-          lineHeight: 1.3,
+          lineHeight: 1.25,
           wordBreak: "break-word",
-          marginBottom: subLabel ? 5 : 10,
+          marginBottom: subLabel ? 6 : 12,
         }}>
           {label}
         </div>
@@ -229,10 +229,10 @@ function TiresiasNode({ data }: NodeProps) {
         {/* Sub-label */}
         {subLabel && (
           <div style={{
-            fontSize: 12,
+            fontSize: 14,
             fontFamily: "monospace",
             color: "#374151",
-            marginBottom: 12,
+            marginBottom: 14,
             letterSpacing: "0.04em",
           }}>
             {subLabel}
@@ -259,14 +259,14 @@ function TiresiasNode({ data }: NodeProps) {
             display: "inline-flex",
             alignItems: "center",
             gap: 5,
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 700,
             color: anomalous ? "#C9933A" : "#374151",
             background: anomalous ? "rgba(201,147,58,0.1)" : "rgba(255,255,255,0.04)",
             border: `1px solid ${anomalous ? "rgba(201,147,58,0.3)" : "rgba(255,255,255,0.07)"}`,
-            borderRadius: 5,
-            padding: "4px 10px",
-            marginBottom: 10,
+            borderRadius: 6,
+            padding: "5px 12px",
+            marginBottom: 12,
             letterSpacing: "0.06em",
           }}>
             <span style={{ color: anomalous ? "#C9933A" : "#374151" }}>◆</span>
@@ -277,10 +277,10 @@ function TiresiasNode({ data }: NodeProps) {
         {/* Exposure: owner */}
         {isExposure && owner && (
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: "#374151", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+            <div style={{ fontSize: 12, color: "#374151", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 5 }}>
               Owner
             </div>
-            <div style={{ fontSize: 14, color: "#9CA3AF", fontWeight: 600 }}>
+            <div style={{ fontSize: 16, color: "#9CA3AF", fontWeight: 600 }}>
               {owner}
             </div>
           </div>
@@ -292,13 +292,13 @@ function TiresiasNode({ data }: NodeProps) {
             display: "flex",
             alignItems: "center",
             gap: 6,
-            fontSize: 12,
+            fontSize: 13,
             color: "#FBBF24",
             background: "rgba(251,191,36,0.08)",
             border: "1px solid rgba(251,191,36,0.2)",
             borderRadius: 6,
-            padding: "5px 10px",
-            marginBottom: 10,
+            padding: "6px 12px",
+            marginBottom: 12,
             fontWeight: 700,
             letterSpacing: "0.06em",
           }}>
@@ -311,9 +311,9 @@ function TiresiasNode({ data }: NodeProps) {
           <div style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 6,
-            marginTop: 4,
-            fontSize: 12,
+            gap: 7,
+            marginTop: 6,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: "0.10em",
             textTransform: "uppercase",
@@ -341,7 +341,7 @@ function TiresiasNode({ data }: NodeProps) {
             borderRadius: 6,
             background: "rgba(248,113,113,0.1)",
             border: "1px solid rgba(248,113,113,0.3)",
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 700,
             color: "#FCA5A5",
             letterSpacing: "0.08em",
@@ -363,7 +363,7 @@ function TiresiasNode({ data }: NodeProps) {
             borderRadius: 6,
             background: "rgba(201,147,58,0.1)",
             border: "1px solid rgba(201,147,58,0.3)",
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 700,
             color: "#C9933A",
             letterSpacing: "0.08em",
@@ -514,8 +514,8 @@ function buildLayout(
     byHop[h] = [...(byHop[h] ?? []), n];
   }
 
-  const HORIZ = 420;
-  const VERT  = 220;
+  const HORIZ = 520;
+  const VERT  = 260;
 
   const flowNodes: Node[] = graphNodes.map((n) => {
     const hop      = hopMap[n.id] ?? 0;

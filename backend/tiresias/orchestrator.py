@@ -14,6 +14,7 @@ import structlog
 from lineage.graph import BlastRadius, LineageGraph
 from memory.fingerprint import DriftReport, PSI_WATCH
 from oracle.inference import DriftClassification, OracleAgent, OracleVerdict
+from tiresias.slack_client import SlackClient
 
 log = structlog.get_logger(__name__)
 
@@ -60,8 +61,9 @@ class TiresiasOrchestrator:
         self._mcp = mcp_client
         self._config = config
         self._pending: dict[str, PendingAction] = {}
-        self._quarantined: dict[str, PendingAction] = {}  # quarantined, awaiting re-enable
+        self._quarantined: dict[str, PendingAction] = {}
         self._psi_log: deque[dict] = deque(maxlen=200)
+        self._slack = SlackClient(os.environ.get("SLACK_WEBHOOK_URL", ""))
 
     async def handle_sync_completed(
         self,
@@ -127,6 +129,25 @@ class TiresiasOrchestrator:
                 "confidence": verdict.confidence,
                 "reasoning": verdict.reasoning,
             }
+
+        # --- Notify Slack: incident detected ---
+        try:
+            self._slack.notify_incident(
+                table=table,
+                column=changed_column,
+                psi_score=drift_report.max_psi_score,
+                psi_threshold=PSI_WATCH,
+                confidence=verdict.confidence,
+                reasoning=verdict.reasoning,
+                blast_radius_nodes=[
+                    {"node_type": n.node_type, "label": n.name, "severity": n.severity,
+                     "owner": n.owner, "references_column": n.references_column}
+                    for n in blast_radius.nodes
+                ],
+                report_id=drift_report.report_id,
+            )
+        except Exception as exc:
+            log.warning("slack_notify_incident_failed", error=str(exc))
 
         # --- Generate dbt fix via second Gemini pass ---
         try:
@@ -199,6 +220,16 @@ class TiresiasOrchestrator:
             action.connector_id, action.schema_name, action.table_name
         )
 
+        # Notify Slack: quarantined
+        try:
+            self._slack.notify_quarantined(
+                table=action.table_name,
+                schema=action.schema_name,
+                connector_id=action.connector_id,
+            )
+        except Exception as exc:
+            log.warning("slack_notify_quarantined_failed", error=str(exc))
+
         # Auto-create GitHub PR with the generated fix
         pr_url, pr_number, branch = None, None, None
         fixes = action.oracle_verdict.suggested_fixes
@@ -220,6 +251,20 @@ class TiresiasOrchestrator:
                     pr_number = pr_info["pr_number"]
                     branch = pr_info["branch"]
                     self._audit("github_pr_created", pr_url=pr_url, pr_number=pr_number)
+
+                    # Notify Slack: PR opened
+                    try:
+                        self._slack.notify_pr_opened(
+                            pr_url=pr_url,
+                            pr_number=pr_number,
+                            branch=branch,
+                            fixes=[
+                                {"model_name": f.model_name, "original_snippet": f.original_snippet, "fixed_snippet": f.fixed_snippet}
+                                for f in fixes
+                            ],
+                        )
+                    except Exception as slack_exc:
+                        log.warning("slack_notify_pr_failed", error=str(slack_exc))
             except Exception as exc:
                 log.warning("github_pr_failed", error=str(exc))
 
@@ -305,6 +350,18 @@ class TiresiasOrchestrator:
             schema_name=action.schema_name,
             table_name=action.table_name,
         )
+
+        # Notify Slack: loop closed
+        try:
+            self._slack.notify_loop_closed(
+                table=action.table_name,
+                schema=action.schema_name,
+                connector_id=action.connector_id,
+                incident_started_at=action.created_at,
+            )
+        except Exception as exc:
+            log.warning("slack_notify_loop_closed_failed", error=str(exc))
+
         return {
             "status": "reenabled",
             "report_id": report_id,

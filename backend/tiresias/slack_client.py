@@ -40,6 +40,7 @@ class SlackClient:
         reasoning: str,
         blast_radius_nodes: list[dict],
         report_id: str,
+        pipeline_value: float = 0.0,
     ) -> None:
         multiple = f"{psi_score / psi_threshold:.1f}×" if psi_threshold else "—"
 
@@ -91,7 +92,7 @@ class SlackClient:
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": f"*$2.4M late-stage pipeline at risk*  ·  Report `{report_id[:8]}`  ·  Tiresias is initiating quarantine",
+                                "text": f"*${pipeline_value:,.0f} late-stage pipeline at risk*  ·  Report `{report_id[:8]}`  ·  Tiresias is initiating quarantine",
                             }
                         ],
                     },

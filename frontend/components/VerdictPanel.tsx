@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer,
 } from "recharts";
-import { Verdict, FixSuggestion, PrStatus } from "@/lib/types";
+import { Verdict, FixSuggestion, PrStatus, ImpactScore } from "@/lib/types";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -32,6 +32,75 @@ const SEVERITY_BG: Record<string, string> = {
   low: "bg-navy-700 border-navy-700",
   flagged: "bg-gold-400/10 border-gold-400/20",
 };
+
+// ── Impact card ────────────────────────────────────────────────────────────
+
+function fmt(n: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+}
+
+function fmtSeconds(s: number) {
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  return `${(s / 3600).toFixed(1)}h`;
+}
+
+function ImpactCard({ impact }: { impact: ImpactScore }) {
+  const industryH = (impact.industry_avg_ttd_seconds / 3600).toFixed(1);
+  return (
+    <div className="px-6 py-5 border-b border-navy-700 bg-navy-900/60">
+      <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-4 font-sans">
+        Business Impact
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        {/* Pipeline at risk */}
+        <div className="col-span-2 rounded-lg border border-red-500/25 bg-red-500/6 px-4 py-3">
+          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-1">Pipeline value at risk</div>
+          <div className="text-3xl font-bold text-red-400 tabular-nums leading-none">
+            {fmt(impact.pipeline_value_at_risk)}
+          </div>
+          <div className="text-xs text-cream-300/30 font-mono mt-1">hubspot.deal · Contract Sent stage</div>
+        </div>
+
+        {/* TTD */}
+        <div className="rounded-lg border border-navy-700 bg-navy-900/40 px-4 py-3">
+          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-1">Detected in</div>
+          <div className="text-2xl font-bold text-emerald-400 tabular-nums leading-none">
+            {fmtSeconds(impact.time_to_detect_seconds)}
+          </div>
+          <div className="text-xs text-cream-300/30 font-mono mt-1">from sync to verdict</div>
+        </div>
+
+        {/* Industry avg */}
+        <div className="rounded-lg border border-navy-700 bg-navy-900/40 px-4 py-3">
+          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-1">Industry avg TTD</div>
+          <div className="text-2xl font-bold text-cream-300/50 tabular-nums leading-none">
+            ~{industryH}h
+          </div>
+          <div className="text-xs text-cream-300/25 font-mono mt-1">benchmark estimate</div>
+        </div>
+
+        {/* Hours saved */}
+        <div className="rounded-lg border border-gold-400/20 bg-gold-400/5 px-4 py-3">
+          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-1">Eng. hours saved</div>
+          <div className="text-2xl font-bold text-gold-400 tabular-nums leading-none">
+            {impact.hours_saved_this_incident.toFixed(1)}h
+          </div>
+          <div className="text-xs text-cream-300/30 font-mono mt-1">this incident</div>
+        </div>
+
+        {/* Cumulative */}
+        <div className="rounded-lg border border-navy-700 bg-navy-900/40 px-4 py-3">
+          <div className="text-xs text-cream-300/40 uppercase tracking-widest mb-1">Total incidents caught</div>
+          <div className="text-2xl font-bold text-cream-100 tabular-nums leading-none">
+            {impact.incidents_caught_total}
+          </div>
+          <div className="text-xs text-cream-300/30 font-mono mt-1">{impact.total_hours_saved.toFixed(1)}h saved total</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Section label ──────────────────────────────────────────────────────────
 
@@ -534,6 +603,9 @@ export default function VerdictPanel({ verdict, onApprove, onDismiss }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Business impact */}
+      {verdict.impact && <ImpactCard impact={verdict.impact} />}
 
       {/* PSI metric */}
       <PsiMetric verdict={verdict} />

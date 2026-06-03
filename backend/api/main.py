@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from lineage.graph import BlastRadius, LineageGraph
 from oracle.inference import FixSuggestion, OracleAgent
-from tiresias.orchestrator import PendingAction, TiresiasOrchestrator
+from tiresias.orchestrator import ImpactScore, PendingAction, TiresiasOrchestrator
 
 log = structlog.get_logger(__name__)
 
@@ -191,6 +191,7 @@ class VerdictResponse(BaseModel):
     dist_baseline: dict[str, float]
     dist_current: dict[str, float]
     suggested_fixes: list[FixSuggestion]
+    impact: dict | None
     github_pr_url: str | None
     github_pr_number: int | None
 
@@ -220,6 +221,19 @@ def _blast_radius_to_graph(br: BlastRadius | None) -> dict:
     return {
         "nodes": [source_node] + downstream,
         "edges": [{"source": u, "target": v} for u, v in br.edges],
+    }
+
+
+def _impact_to_dict(impact: ImpactScore | None) -> dict | None:
+    if impact is None:
+        return None
+    return {
+        "pipeline_value_at_risk": impact.pipeline_value_at_risk,
+        "time_to_detect_seconds": impact.time_to_detect_seconds,
+        "industry_avg_ttd_seconds": impact.industry_avg_ttd_seconds,
+        "hours_saved_this_incident": impact.hours_saved_this_incident,
+        "incidents_caught_total": impact.incidents_caught_total,
+        "total_hours_saved": impact.total_hours_saved,
     }
 
 
@@ -253,6 +267,7 @@ def _action_to_response(action: PendingAction) -> VerdictResponse:
         suggested_fixes=v.suggested_fixes,
         github_pr_url=action.github_pr_url,
         github_pr_number=action.github_pr_number,
+        impact=_impact_to_dict(action.impact),
     )
 
 

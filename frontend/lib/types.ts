@@ -42,6 +42,16 @@ export type Verdict = {
   suggested_fixes: FixSuggestion[];
   github_pr_url: string | null;
   github_pr_number: number | null;
+  impact: ImpactScore | null;
+};
+
+export type ImpactScore = {
+  pipeline_value_at_risk: number;
+  time_to_detect_seconds: number;
+  industry_avg_ttd_seconds: number;
+  hours_saved_this_incident: number;
+  incidents_caught_total: number;
+  total_hours_saved: number;
 };
 
 export type FixSuggestion = {

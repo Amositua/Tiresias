@@ -20,20 +20,32 @@ log = structlog.get_logger(__name__)
 
 
 @dataclass
+class ImpactScore:
+    pipeline_value_at_risk: float       # live BigQuery revenue query
+    time_to_detect_seconds: float       # actual TTD from sync webhook to verdict
+    industry_avg_ttd_seconds: float     # 3.2h benchmark (labeled as estimate)
+    hours_saved_this_incident: float    # industry_avg - actual TTD in hours
+    incidents_caught_total: int         # running count this session
+    total_hours_saved: float            # cumulative across all incidents
+
+
+@dataclass
 class PendingAction:
     report_id: str
     connector_id: str
-    schema_name: str       # discovered at runtime from get_connection_schema_config
+    schema_name: str
     table_name: str
     oracle_verdict: OracleVerdict
-    proposed_fix: str      # human-readable; shown in dashboard
-    schema_check: dict     # raw Fivetran response from get_schema_config
+    proposed_fix: str
+    schema_check: dict
     blast_radius: BlastRadius | None = None
     drift_report: DriftReport | None = None
     psi_threshold: float = PSI_WATCH
     github_pr_url: str | None = None
     github_pr_number: int | None = None
     github_branch: str | None = None
+    impact: ImpactScore | None = None
+    sync_received_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -64,6 +76,10 @@ class TiresiasOrchestrator:
         self._quarantined: dict[str, PendingAction] = {}
         self._psi_log: deque[dict] = deque(maxlen=200)
         self._slack = SlackClient(os.environ.get("SLACK_WEBHOOK_URL", ""))
+        self._incidents_caught: int = 0
+        self._total_hours_saved: float = 0.0
+        # Industry benchmark: avg time-to-detect a data quality issue = 3.2h
+        self._industry_avg_ttd_seconds: float = 11_520.0
 
     async def handle_sync_completed(
         self,
@@ -78,6 +94,7 @@ class TiresiasOrchestrator:
         drift_report may be injected directly (demo/test); if None, Memory computes it
         from BigQuery. The MCP schema check always runs against the real Fivetran API.
         """
+        sync_received_at = datetime.now(timezone.utc)
         self._audit("sync_received", connector_id=connector_id, table=f"{dataset}.{table}")
 
         # --- read-only schema check (no FIVETRAN_ALLOW_WRITES) ---
@@ -130,6 +147,38 @@ class TiresiasOrchestrator:
                 "reasoning": verdict.reasoning,
             }
 
+        # --- Compute business impact score ---
+        self._incidents_caught += 1
+        ttd_seconds = (datetime.now(timezone.utc) - sync_received_at).total_seconds()
+        hours_saved = max((self._industry_avg_ttd_seconds - ttd_seconds) / 3600, 0.0)
+        self._total_hours_saved += hours_saved
+
+        pipeline_value = 0.0
+        try:
+            if self._memory is not None:
+                project = self._config.get("project", "tiresias-496915")
+                dataset_env = os.environ.get("BIGQUERY_HUBSPOT_DATASET", "hubspot")
+                sql = (
+                    f"SELECT COALESCE(SUM(d.property_amount), 0) AS v "
+                    f"FROM `{project}.{dataset_env}.deal` d "
+                    f"JOIN `{project}.{dataset_env}.deal_pipeline_stage` s "
+                    f"  ON d.deal_pipeline_stage_id = s.stage_id "
+                    f"WHERE s.stage_id = 'contractsent' AND NOT d._fivetran_deleted"
+                )
+                rows = list(self._memory._client.query(sql).result())
+                pipeline_value = float(rows[0]["v"]) if rows else 0.0
+        except Exception as exc:
+            log.warning("impact_pipeline_query_failed", error=str(exc))
+
+        impact = ImpactScore(
+            pipeline_value_at_risk=pipeline_value,
+            time_to_detect_seconds=round(ttd_seconds, 1),
+            industry_avg_ttd_seconds=self._industry_avg_ttd_seconds,
+            hours_saved_this_incident=round(hours_saved, 2),
+            incidents_caught_total=self._incidents_caught,
+            total_hours_saved=round(self._total_hours_saved, 2),
+        )
+
         # --- Notify Slack: incident detected ---
         try:
             self._slack.notify_incident(
@@ -145,6 +194,7 @@ class TiresiasOrchestrator:
                     for n in blast_radius.nodes
                 ],
                 report_id=drift_report.report_id,
+                pipeline_value=impact.pipeline_value_at_risk,
             )
         except Exception as exc:
             log.warning("slack_notify_incident_failed", error=str(exc))
@@ -183,6 +233,8 @@ class TiresiasOrchestrator:
             schema_check=schema_config,
             blast_radius=blast_radius,
             drift_report=drift_report,
+            impact=impact,
+            sync_received_at=sync_received_at,
         )
         self._pending[action.report_id] = action
         self._audit(

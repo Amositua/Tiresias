@@ -123,7 +123,7 @@ export default function VPDashboard() {
       {/* Main metric */}
       <main className="flex-1 flex flex-col items-center justify-center gap-6 px-8">
         <p className="text-sm text-cream-300/40 uppercase tracking-[0.25em] font-sans">
-          Contract Sent · Late-Stage Pipeline Value
+          Late-Stage Pipeline Value
         </p>
 
         {loading ? (
@@ -148,7 +148,7 @@ export default function VPDashboard() {
             )}
 
             <p className="text-base text-cream-300/60 font-sans">
-              {data.deal_count} {data.deal_count === 1 ? 'deal' : 'deals'} matching &ldquo;Contract Sent&rdquo;
+              {data.deal_count} {data.deal_count === 1 ? 'deal' : 'deals'} in late-stage pipeline
             </p>
           </>
         ) : (

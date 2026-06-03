@@ -340,8 +340,17 @@ export default function MonitoringDataPanel({
 
   return (
     <div className="flex flex-col h-full p-6 gap-7 overflow-y-auto">
+
+      {/* Agent activity log — shown first so it's immediately visible */}
+      <div>
+        <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3 font-sans">
+          Agent Activity
+        </div>
+        <ActivityLog entries={activity} maxHeight={220} />
+      </div>
+
       {/* PSI trend chart */}
-      <div className="flex-shrink-0" style={{ height: "220px" }}>
+      <div className="border-t border-navy-700 pt-6 flex-shrink-0" style={{ height: "260px" }}>
         <PSITrendChart
           data={trend}
           threshold={summary?.psi_threshold ?? 0.25}
@@ -365,14 +374,6 @@ export default function MonitoringDataPanel({
           <ConnectorHealthPanelInline data={connectorHealth} />
         </div>
       )}
-
-      {/* Agent activity log */}
-      <div className="border-t border-navy-700 pt-6">
-        <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3 font-sans">
-          Agent Activity
-        </div>
-        <ActivityLog entries={activity} maxHeight={240} />
-      </div>
 
       {/* Idle state indicator */}
       <IdleState />

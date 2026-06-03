@@ -81,6 +81,15 @@ export type PsiTrendPoint = {
   is_anomalous: boolean;
 };
 
+export type ActivityEntry = {
+  timestamp: string;
+  agent: string;
+  event: string;
+  message: string;
+  status: "running" | "done" | "error";
+  report_id?: string | null;
+};
+
 export type ConnectorTable = {
   schema: string;
   table: string;

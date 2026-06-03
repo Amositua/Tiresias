@@ -78,8 +78,25 @@ class TiresiasOrchestrator:
         self._slack = SlackClient(os.environ.get("SLACK_WEBHOOK_URL", ""))
         self._incidents_caught: int = 0
         self._total_hours_saved: float = 0.0
-        # Industry benchmark: avg time-to-detect a data quality issue = 3.2h
         self._industry_avg_ttd_seconds: float = 11_520.0
+        self._activity: deque[dict] = deque(maxlen=100)
+
+    def _emit(
+        self,
+        agent: str,
+        event: str,
+        message: str,
+        status: str = "done",
+        report_id: str | None = None,
+    ) -> None:
+        self._activity.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent": agent,
+            "event": event,
+            "message": message,
+            "status": status,
+            "report_id": report_id,
+        })
 
     async def handle_sync_completed(
         self,
@@ -96,8 +113,10 @@ class TiresiasOrchestrator:
         """
         sync_received_at = datetime.now(timezone.utc)
         self._audit("sync_received", connector_id=connector_id, table=f"{dataset}.{table}")
+        self._emit("Memory", "sync_received", f"{connector_id} · {dataset}.{table}")
 
         # --- read-only schema check (no FIVETRAN_ALLOW_WRITES) ---
+        self._emit("Memory", "schema_check", "querying Fivetran MCP for live schema config", "running")
         schema_config = await self._mcp.get_schema_config(connector_id)
         schema_name = _extract_schema_name(schema_config, table)
         self._audit(
@@ -106,12 +125,24 @@ class TiresiasOrchestrator:
             table=table,
             fivetran_schema=schema_name,
         )
+        self._emit("Memory", "schema_check", f"schema '{schema_name}' · {table} located")
 
         # --- Memory: compute drift ---
+        self._emit("Memory", "fingerprinting", f"computing PSI fingerprint · 7-day baseline", "running")
         if drift_report is None:
             if self._memory is None:
                 raise ValueError("fingerprinter required when drift_report is not provided")
             drift_report = self._run_memory(connector_id, dataset, table)
+
+        if drift_report.max_psi_column:
+            self._emit(
+                "Memory", "fingerprint_computed",
+                f"PSI {drift_report.max_psi_score:.4f} on '{drift_report.max_psi_column}'"
+                f" {'· anomalous' if drift_report.is_anomalous else '· within threshold'}",
+            )
+        else:
+            self._emit("Memory", "fingerprint_computed",
+                f"all columns within threshold · row_count z={drift_report.row_count_z_score:.2f}")
 
         # Append to rolling PSI log regardless of anomaly state
         self._psi_log.append({
@@ -128,9 +159,15 @@ class TiresiasOrchestrator:
 
         # --- Lineage: blast radius ---
         changed_column = drift_report.max_psi_column or ""
+        self._emit("Lineage", "tracing_blast_radius", f"BFS from {table}.{changed_column} through dbt graph", "running")
         blast_radius = self._lineage.blast_radius(table, changed_column)
+        owners = [n.owner for n in blast_radius.nodes if n.owner]
+        owner_str = f" · {', '.join(set(owners))}" if owners else ""
+        self._emit("Lineage", "blast_radius_traced",
+            f"{len(blast_radius.nodes)} downstream assets affected{owner_str}")
 
         # --- Oracle: classify ---
+        self._emit("Oracle", "classifying", "Gemini 3.1 Pro · structured reasoning", "running")
         verdict = self._oracle.classify(drift_report, blast_radius)
         self._audit(
             "oracle_verdict",
@@ -138,6 +175,9 @@ class TiresiasOrchestrator:
             classification=verdict.classification.value,
             confidence=verdict.confidence,
         )
+        self._emit("Oracle", "verdict_ready",
+            f"{verdict.classification.value} · {int(verdict.confidence * 100)}% confidence",
+            report_id=drift_report.report_id)
 
         if verdict.classification != DriftClassification.SILENT_SEMANTIC_FAILURE:
             return {
@@ -207,10 +247,18 @@ class TiresiasOrchestrator:
             ]
             models_sql = self._lineage.get_models_sql(affected_models)
             if models_sql:
+                self._emit("Fix", "reading_models",
+                    f"reading SQL for {', '.join(m['name'] for m in models_sql)}", "running",
+                    report_id=drift_report.report_id)
                 fixes = self._oracle.generate_fix(verdict, blast_radius, models_sql)
                 verdict = verdict.model_copy(update={"suggested_fixes": fixes})
+                if fixes:
+                    self._emit("Fix", "fix_generated",
+                        f"{len(fixes)} model(s) corrected · stage_id replaces mutable label",
+                        report_id=drift_report.report_id)
         except Exception as exc:
             log.warning("fix_generation_failed", error=str(exc))
+            self._emit("Fix", "fix_generation_failed", str(exc), "error")
 
         # --- Queue pending approval ---
         if schema_name is None:
@@ -272,6 +320,10 @@ class TiresiasOrchestrator:
             action.connector_id, action.schema_name, action.table_name
         )
 
+        self._emit("MCP", "quarantine_confirmed",
+            f"modify_connection_table_config · {action.schema_name}.{action.table_name} enabled=false",
+            report_id=report_id)
+
         # Notify Slack: quarantined
         try:
             self._slack.notify_quarantined(
@@ -303,6 +355,9 @@ class TiresiasOrchestrator:
                     pr_number = pr_info["pr_number"]
                     branch = pr_info["branch"]
                     self._audit("github_pr_created", pr_url=pr_url, pr_number=pr_number)
+                    self._emit("GitHub", "pr_opened",
+                        f"PR #{pr_number} opened · {gh_repo} · {branch}",
+                        report_id=report_id)
 
                     # Notify Slack: PR opened
                     try:
@@ -402,6 +457,10 @@ class TiresiasOrchestrator:
             schema_name=action.schema_name,
             table_name=action.table_name,
         )
+
+        self._emit("MCP", "reenable_confirmed",
+            f"modify_connection_table_config · {action.schema_name}.{action.table_name} enabled=true · loop closed",
+            report_id=report_id)
 
         # Notify Slack: loop closed
         try:

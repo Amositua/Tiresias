@@ -476,6 +476,13 @@ async def monitoring_connector_health() -> dict:
     }
 
 
+@app.get("/monitoring/activity")
+def monitoring_activity(limit: int = 50) -> dict:
+    orch = _require_orchestrator()
+    entries = list(orch._activity)[-limit:]
+    return {"entries": entries}
+
+
 @app.get("/monitoring/freshness")
 def monitoring_freshness() -> dict:
     orch = _require_orchestrator()

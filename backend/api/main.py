@@ -348,7 +348,7 @@ SELECT
 FROM `{project}.hubspot.deal` d
 JOIN `{project}.hubspot.deal_pipeline_stage` s
   ON d.deal_pipeline_stage_id = s.stage_id
-WHERE s.stage_id = 'contractsent'
+WHERE s.label = 'Contract Sent'
   AND NOT d._fivetran_deleted
 """
     client = bq.Client(project=project)
@@ -363,7 +363,7 @@ WHERE s.stage_id = 'contractsent'
             f"FROM `{project}.hubspot.deal` d\n"
             f"JOIN `{project}.hubspot.deal_pipeline_stage` s\n"
             f"  ON d.deal_pipeline_stage_id = s.stage_id\n"
-            f"WHERE s.stage_id = 'contractsent'\n"
+            f"WHERE s.label = 'Contract Sent'\n"
             f"  AND NOT d._fivetran_deleted"
         ),
     }

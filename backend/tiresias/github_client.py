@@ -138,6 +138,26 @@ class GitHubClient:
                     "github_fix_file_skip", model=fix.model_name, error=str(exc)
                 )
 
+        # Also fix the VP dashboard backend query (same label → stage_id pattern)
+        vp_path = "backend/api/main.py"
+        try:
+            current, file_sha = self._get_file(vp_path, default_branch)
+            fixed_vp = current.replace(
+                "WHERE s.label = 'Contract Sent'",
+                "WHERE s.stage_id = 'contractsent'",
+            )
+            if fixed_vp != current:
+                self._update_file(
+                    path=vp_path,
+                    content=fixed_vp,
+                    message="fix(vp-dashboard): use stable stage_id — Tiresias auto-fix",
+                    sha=file_sha,
+                    branch=branch,
+                )
+                committed.append("api/main.py (VP dashboard)")
+        except Exception:
+            pass  # non-critical
+
         pr_body = _build_pr_body(fixes, report_id, table, column, reasoning)
         pr = self._open_pr(
             title=f"fix({table}): replace mutable label filter with stable stage_id — Tiresias auto-fix",

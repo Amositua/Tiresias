@@ -344,22 +344,26 @@ export default function MonitoringDataPanel({
   return (
     <div className="flex flex-col h-full p-6 gap-7 overflow-y-auto">
 
-      {/* Agent activity log — shown first so it's immediately visible */}
-      <div>
-        <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3 font-sans">
-          Agent Activity
+      {/* Agent activity — only after a trigger has run */}
+      {activity.length > 0 && (
+        <div>
+          <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3 font-sans">
+            Agent Activity
+          </div>
+          <ActivityLog entries={activity} maxHeight={220} />
         </div>
-        <ActivityLog entries={activity} maxHeight={220} />
-      </div>
+      )}
 
-      {/* PSI trend chart */}
-      <div className="border-t border-navy-700 pt-6 flex-shrink-0" style={{ height: "260px" }}>
-        <PSITrendChart
-          data={trend}
-          threshold={summary?.psi_threshold ?? 0.25}
-          column={trendColumn}
-        />
-      </div>
+      {/* PSI trend chart — only after a trigger has run */}
+      {trend.length > 0 && (
+        <div className={`${activity.length > 0 ? "border-t border-navy-700 pt-6" : ""} flex-shrink-0`} style={{ height: "260px" }}>
+          <PSITrendChart
+            data={trend}
+            threshold={summary?.psi_threshold ?? 0.25}
+            column={trendColumn}
+          />
+        </div>
+      )}
 
       {/* Proactive risk forecast */}
       <div className="border-t border-navy-700 pt-6">

@@ -10,8 +10,9 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import { MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry } from "@/lib/types";
+import { MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry, RiskForecast } from "@/lib/types";
 import ActivityLog from "@/components/ActivityLog";
+import RiskForecastPanel from "@/components/RiskForecast";
 
 // ── PSI trend chart ────────────────────────────────────────────────────────
 
@@ -327,12 +328,14 @@ export default function MonitoringDataPanel({
   trend,
   freshness,
   connectorHealth,
+  riskForecast,
   activity,
 }: {
   summary: MonitoringSummary | null;
   trend: PsiTrendPoint[];
   freshness: TableFreshness[];
   connectorHealth: ConnectorHealth | null;
+  riskForecast: RiskForecast | null;
   activity: ActivityEntry[];
 }) {
   const isAnomalous = summary?.is_anomalous ?? false;
@@ -356,6 +359,14 @@ export default function MonitoringDataPanel({
           threshold={summary?.psi_threshold ?? 0.25}
           column={trendColumn}
         />
+      </div>
+
+      {/* Proactive risk forecast */}
+      <div className="border-t border-navy-700 pt-6">
+        <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-4 font-sans">
+          Proactive Risk Forecast
+        </div>
+        <RiskForecastPanel forecast={riskForecast} />
       </div>
 
       {/* Sync freshness */}

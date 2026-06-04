@@ -135,6 +135,76 @@ class OracleAgent:
         )
 
 
+    def predict_risk(self, table: str, profile: dict) -> dict:
+        """Return risk score + Gemini-generated reason for a table."""
+        score = _compute_risk_score(profile)
+        level = _risk_level(score)
+
+        # Short Gemini call for a human-readable reason
+        reason = self._generate_risk_reason(table, profile, score, level)
+
+        return {
+            "table": table,
+            "risk_score": score,
+            "risk_level": level,
+            "reason": reason,
+            "volatile_column": profile.get("volatile_column"),
+            "max_psi": profile.get("max_psi", 0.0),
+            "anomaly_count": profile.get("anomaly_count", 0),
+            "recent_anomaly_days": profile.get("recent_anomaly_days"),
+            "fingerprint_count": profile.get("fingerprint_count", 0),
+        }
+
+    def _generate_risk_reason(
+        self, table: str, profile: dict, score: int, level: str
+    ) -> str:
+        try:
+            from google.genai import types
+
+            client = self._get_client()
+            anomaly_count = profile.get("anomaly_count", 0)
+            recent_days = profile.get("recent_anomaly_days")
+            volatile_col = profile.get("volatile_column")
+            max_psi = profile.get("max_psi", 0.0)
+            n = profile.get("fingerprint_count", 0)
+
+            recent_str = (
+                f"Most recent drift was {recent_days:.1f} days ago."
+                if recent_days is not None else "No drift detected in recent history."
+            )
+
+            prompt = f"""You are Tiresias, a pre-cognitive data quality agent.
+
+Summarise in ONE concise sentence why the table '{table}' has a {level} drift risk score of {score}/100.
+Be specific — reference the actual signals below. Do not start with "The table" — vary the phrasing.
+
+Signals:
+- Drift events in last {n} fingerprints: {anomaly_count}
+- Most volatile column: {volatile_col or 'none identified'}
+- Highest PSI seen: {max_psi:.4f} (threshold 0.25)
+- {recent_str}
+
+One sentence only. No bullet points. No preamble."""
+
+            response = client.models.generate_content(
+                model=self._model,
+                contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=200,
+                ),
+            )
+            text = response.candidates[0].content.parts[-1].text.strip()
+            return text
+        except Exception:
+            # Fallback: generate from components without Gemini
+            if profile.get("anomaly_count", 0) > 0:
+                days = profile.get("recent_anomaly_days")
+                col = profile.get("volatile_column", "unknown column")
+                days_str = f"{days:.0f} days ago" if days else "recently"
+                return f"Column '{col}' drifted {profile['anomaly_count']} time(s) in recent history, most recently {days_str}."
+            return f"No significant drift history — baseline is stable across {profile.get('fingerprint_count', 0)} fingerprints."
+
     def generate_fix(
         self,
         verdict: OracleVerdict,
@@ -371,3 +441,54 @@ For each model:
 Only include models where you can identify a concrete line that breaks. If a model has no
 direct string-literal reference to the renamed value, omit it.
 """
+
+
+# ── Risk prediction ───────────────────────────────────────────────────────────
+
+class _RiskPrediction(BaseModel):
+    risk_score: int = Field(ge=0, le=100)
+    risk_level: str   # LOW | MEDIUM | HIGH | CRITICAL
+    reason: str       # one sentence, grounded in the actual history
+
+
+def _compute_risk_score(profile: dict) -> int:
+    """Deterministic score 0-100 from fingerprint history signals."""
+    if not profile.get("sufficient_history"):
+        return 5
+
+    score = 0
+    anomaly_count = profile.get("anomaly_count", 0)
+    recent_days = profile.get("recent_anomaly_days")
+    max_psi = profile.get("max_psi", 0.0)
+
+    # Each past anomaly in the baseline window adds weight
+    score += min(anomaly_count * 20, 50)
+
+    # Recency — more recent drift = higher risk
+    if recent_days is not None:
+        if recent_days <= 3:
+            score += 30
+        elif recent_days <= 7:
+            score += 20
+        elif recent_days <= 14:
+            score += 10
+
+    # PSI magnitude of most recent comparison
+    if max_psi > 2.0:
+        score += 15
+    elif max_psi > 0.5:
+        score += 8
+    elif max_psi > 0.25:
+        score += 4
+
+    return min(score, 100)
+
+
+def _risk_level(score: int) -> str:
+    if score >= 70:
+        return "CRITICAL"
+    if score >= 45:
+        return "HIGH"
+    if score >= 20:
+        return "MEDIUM"
+    return "LOW"

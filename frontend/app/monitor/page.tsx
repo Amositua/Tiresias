@@ -6,7 +6,7 @@ import Link from "next/link";
 import VerdictPanel from "@/components/VerdictPanel";
 import MonitoringDataPanel from "@/components/MonitoringDataPanel";
 import ConnectorHealthPanel from "@/components/ConnectorHealthPanel";
-import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry } from "@/lib/types";
+import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry, RiskForecast } from "@/lib/types";
 
 const LineageGraph = dynamic(() => import("@/components/LineageGraph"), {
   ssr: false,
@@ -61,6 +61,7 @@ export default function Monitor() {
   const [freshness, setFreshness] = useState<TableFreshness[]>([]);
   const [connectorHealth, setConnectorHealth] = useState<ConnectorHealth | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [riskForecast, setRiskForecast] = useState<RiskForecast | null>(null);
   const dismissedRef = useRef<Set<string>>(new Set());
   const activeReportRef = useRef<string | null>(null);
 
@@ -121,6 +122,11 @@ export default function Monitor() {
       try {
         const act = await fetch("/api/monitoring/activity").then((r) => r.json());
         setActivity(act.entries ?? []);
+      } catch { /* ignore */ }
+
+      try {
+        const rf = await fetch("/api/monitoring/risk-forecast").then((r) => r.json());
+        if (rf.tables) setRiskForecast(rf);
       } catch { /* ignore */ }
     }
 
@@ -274,7 +280,7 @@ export default function Monitor() {
             {verdict ? (
               <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
             ) : (
-              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} activity={activity} />
+              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} riskForecast={riskForecast} activity={activity} />
             )}
           </div>
         </div>

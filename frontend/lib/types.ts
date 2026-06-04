@@ -81,6 +81,24 @@ export type PsiTrendPoint = {
   is_anomalous: boolean;
 };
 
+export type RiskPrediction = {
+  table: string;
+  risk_score: number;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | "UNKNOWN";
+  reason: string;
+  volatile_column: string | null;
+  max_psi: number;
+  anomaly_count: number;
+  recent_anomaly_days: number | null;
+  fingerprint_count: number;
+};
+
+export type RiskForecast = {
+  tables: RiskPrediction[];
+  generated_at: string;
+  psi_threshold: number;
+};
+
 export type ActivityEntry = {
   timestamp: string;
   agent: string;

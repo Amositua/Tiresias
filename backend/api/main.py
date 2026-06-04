@@ -483,6 +483,43 @@ def monitoring_activity(limit: int = 50) -> dict:
     return {"entries": entries}
 
 
+@app.get("/monitoring/risk-forecast")
+def monitoring_risk_forecast() -> dict:
+    """Return proactive drift risk scores for all watched tables."""
+    orch = _require_orchestrator()
+    if orch._memory is None:
+        return {"tables": [], "generated_at": datetime.now(timezone.utc).isoformat()}
+
+    dataset = os.environ.get("BIGQUERY_HUBSPOT_DATASET", "hubspot")
+    watched = ["deal_pipeline_stage", "deal"]
+    results = []
+
+    for table in watched:
+        try:
+            profile = orch._memory.get_risk_profile(dataset, table)
+            prediction = orch._oracle.predict_risk(table, profile)
+            results.append(prediction)
+        except Exception as exc:
+            log.warning("risk_forecast_failed", table=table, error=str(exc))
+            results.append({
+                "table": table,
+                "risk_score": 0,
+                "risk_level": "UNKNOWN",
+                "reason": "Unable to compute — check fingerprint history",
+                "volatile_column": None,
+                "max_psi": 0.0,
+                "anomaly_count": 0,
+                "recent_anomaly_days": None,
+                "fingerprint_count": 0,
+            })
+
+    return {
+        "tables": results,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "psi_threshold": 0.25,
+    }
+
+
 @app.get("/monitoring/freshness")
 def monitoring_freshness() -> dict:
     orch = _require_orchestrator()

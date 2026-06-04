@@ -430,6 +430,81 @@ class BigQueryFingerprinter:
             result.append(fp)
         return result
 
+    def get_risk_profile(
+        self,
+        dataset: str,
+        table: str,
+        n: int = 15,
+        psi_threshold: float = PSI_WATCH,
+    ) -> dict:
+        """Return a risk profile for a table based on historical fingerprint patterns."""
+        fingerprints = self.get_recent_fingerprints(dataset, table, n=n)
+        if len(fingerprints) < 2:
+            return {
+                "table": table,
+                "fingerprint_count": len(fingerprints),
+                "anomaly_count": 0,
+                "recent_anomaly_days": None,
+                "max_psi": 0.0,
+                "volatile_column": None,
+                "avg_max_psi": 0.0,
+                "sufficient_history": False,
+            }
+
+        # Most recent = index 0 (get_recent_fingerprints orders by DESC)
+        # Compute PSI for most recent fingerprint against the rest as baseline
+        current = fingerprints[0]
+        baseline = fingerprints[1:]
+
+        col_psi: dict[str, float] = {}
+        for col in current.columns:
+            if col.psi_distribution:
+                base_dist = _average_distributions(baseline, col.name)
+                if base_dist:
+                    psi = compute_psi(col.psi_distribution, base_dist)
+                    col_psi[col.name] = round(psi, 6)
+
+        max_psi = max(col_psi.values(), default=0.0)
+        volatile_col = max(col_psi, key=col_psi.get) if col_psi else None
+
+        # Count how many of the baseline fingerprints showed anomalous PSI
+        anomaly_count = 0
+        last_anomaly_at = None
+        for fp in baseline:
+            for col in fp.columns:
+                if col.psi_distribution:
+                    base_for_fp = [
+                        f for f in baseline if f.fingerprint_id != fp.fingerprint_id
+                    ]
+                    if base_for_fp:
+                        d = _average_distributions(base_for_fp, col.name)
+                        if d and compute_psi(col.psi_distribution, d) > psi_threshold:
+                            anomaly_count += 1
+                            if last_anomaly_at is None or fp.computed_at > last_anomaly_at:
+                                last_anomaly_at = fp.computed_at
+                            break
+
+        from datetime import datetime, timezone as tz
+        recent_anomaly_days: float | None = None
+        if last_anomaly_at is not None:
+            delta = datetime.now(tz.utc) - last_anomaly_at.replace(tzinfo=tz.utc)
+            recent_anomaly_days = round(delta.total_seconds() / 86400, 1)
+
+        avg_max_psi = round(
+            sum(col_psi.values()) / len(col_psi) if col_psi else 0.0, 4
+        )
+
+        return {
+            "table": table,
+            "fingerprint_count": len(fingerprints),
+            "anomaly_count": anomaly_count,
+            "recent_anomaly_days": recent_anomaly_days,
+            "max_psi": round(max_psi, 4),
+            "volatile_column": volatile_col,
+            "avg_max_psi": avg_max_psi,
+            "sufficient_history": True,
+        }
+
     def get_table_freshness(
         self,
         dataset: str,

@@ -62,9 +62,16 @@ export default function Monitor() {
   const [connectorHealth, setConnectorHealth] = useState<ConnectorHealth | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [riskForecast, setRiskForecast] = useState<RiskForecast | null>(null);
+  const [activeTab, setActiveTab] = useState<"verdict" | "monitor">("monitor");
   const dismissedRef = useRef<Set<string>>(new Set());
   const activeReportRef = useRef<string | null>(null);
   const lastRiskFetchRef = useRef<number>(0);
+
+  // Auto-switch to verdict tab when a new verdict arrives
+  useEffect(() => {
+    if (verdict) setActiveTab("verdict");
+    else setActiveTab("monitor");
+  }, [verdict?.report_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load lineage graph on mount
   useEffect(() => {
@@ -151,6 +158,7 @@ export default function Monitor() {
     }
     const data = await res.json();
     setGraphState("quarantined");
+    setActiveTab("monitor");
     return {
       github_pr_url: data.github_pr_url ?? undefined,
       github_pr_number: data.github_pr_number ?? undefined,
@@ -167,6 +175,7 @@ export default function Monitor() {
     activeReportRef.current = null;
     setVerdict(null);
     setGraphState("monitoring");
+    setActiveTab("monitor");
   }, []);
 
   const isAnomaly  = graphState === "anomalous";
@@ -269,7 +278,8 @@ export default function Monitor() {
 
         {/* Right: Oracle panel */}
         <div className="flex flex-col overflow-hidden" style={{ flex: "0 0 43%" }}>
-          {/* Panel label */}
+
+          {/* Panel header */}
           <div className="px-6 py-3 border-b border-navy-700 flex-shrink-0 flex items-center justify-between bg-navy-900/30">
             <span className="text-xs text-cream-300/35 uppercase tracking-widest">Oracle · AI Verdict Engine</span>
             {verdict && (
@@ -279,9 +289,43 @@ export default function Monitor() {
             )}
           </div>
 
-          {/* Content */}
+          {/* Tab bar — only visible when a verdict is active */}
+          {verdict && (
+            <div className="flex flex-shrink-0 border-b border-navy-700 bg-navy-900/20">
+              <button
+                onClick={() => setActiveTab("verdict")}
+                className={`flex items-center gap-2 px-5 py-3 text-xs font-semibold uppercase tracking-widest transition-colors border-b-2 ${
+                  activeTab === "verdict"
+                    ? "border-red-400 text-red-400"
+                    : "border-transparent text-cream-300/35 hover:text-cream-300/60"
+                }`}
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-400" />
+                </span>
+                Verdict
+              </button>
+              <button
+                onClick={() => setActiveTab("monitor")}
+                className={`flex items-center gap-2 px-5 py-3 text-xs font-semibold uppercase tracking-widest transition-colors border-b-2 ${
+                  activeTab === "monitor"
+                    ? "border-gold-400 text-gold-400"
+                    : "border-transparent text-cream-300/35 hover:text-cream-300/60"
+                }`}
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-gold-400 opacity-40" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-gold-400" />
+                </span>
+                Monitor
+              </button>
+            </div>
+          )}
+
+          {/* Content — switches based on active tab */}
           <div className="flex-1 overflow-y-auto">
-            {verdict ? (
+            {verdict && activeTab === "verdict" ? (
               <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
             ) : (
               <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} riskForecast={riskForecast} activity={activity} />

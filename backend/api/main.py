@@ -483,20 +483,61 @@ def monitoring_activity(limit: int = 50) -> dict:
     return {"entries": entries}
 
 
+_risk_cache: dict = {}
+_RISK_CACHE_TTL = 60  # seconds — Gemini calls are slow, no need to hit every 4s
+
+
 @app.get("/monitoring/risk-forecast")
-def monitoring_risk_forecast() -> dict:
-    """Return proactive drift risk scores for all watched tables."""
+def monitoring_risk_forecast(refresh: bool = False) -> dict:
+    """Return proactive drift risk scores for all watched tables.
+
+    Results are cached for 60 s. Pass ?refresh=true to force recompute.
+    Also incorporates the in-memory PSI log for immediate recency signals
+    without waiting for BigQuery fingerprint storage to commit.
+    """
+    global _risk_cache
+    now = datetime.now(timezone.utc)
+
+    # Serve cache unless stale or forced refresh
+    if not refresh and _risk_cache:
+        age = (now - _risk_cache["_computed_at"]).total_seconds()
+        if age < _RISK_CACHE_TTL:
+            return {k: v for k, v in _risk_cache.items() if k != "_computed_at"}
+
     orch = _require_orchestrator()
     if orch._memory is None:
-        return {"tables": [], "generated_at": datetime.now(timezone.utc).isoformat()}
+        return {"tables": [], "generated_at": now.isoformat(), "cached": False}
 
     dataset = os.environ.get("BIGQUERY_HUBSPOT_DATASET", "hubspot")
     watched = ["deal_pipeline_stage", "deal"]
-    results = []
 
+    # Build a recency map from the in-memory PSI log (immediate signal)
+    recent_psi: dict[str, float] = {}
+    recent_days_map: dict[str, float] = {}
+    for entry in list(orch._psi_log):
+        t = entry.get("table", "")
+        psi = entry.get("psi", 0.0)
+        if entry.get("is_anomalous") and psi > recent_psi.get(t, 0):
+            recent_psi[t] = psi
+            try:
+                ts = datetime.fromisoformat(entry["timestamp"]).replace(tzinfo=timezone.utc)
+                days = (now - ts).total_seconds() / 86400
+                recent_days_map[t] = round(days, 2)
+            except Exception:
+                pass
+
+    results = []
     for table in watched:
         try:
             profile = orch._memory.get_risk_profile(dataset, table)
+
+            # Merge in-memory recency signals into the profile
+            if table in recent_psi:
+                profile["max_psi"] = max(profile.get("max_psi", 0.0), recent_psi[table])
+                if profile.get("recent_anomaly_days") is None or recent_days_map.get(table, 999) < profile["recent_anomaly_days"]:
+                    profile["recent_anomaly_days"] = recent_days_map[table]
+                profile["anomaly_count"] = max(profile.get("anomaly_count", 0), 1)
+
             prediction = orch._oracle.predict_risk(table, profile)
             results.append(prediction)
         except Exception as exc:
@@ -513,11 +554,14 @@ def monitoring_risk_forecast() -> dict:
                 "fingerprint_count": 0,
             })
 
-    return {
+    payload = {
         "tables": results,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": now.isoformat(),
         "psi_threshold": 0.25,
+        "cached": False,
     }
+    _risk_cache = {**payload, "_computed_at": now}
+    return payload
 
 
 @app.get("/monitoring/freshness")

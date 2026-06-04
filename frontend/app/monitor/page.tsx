@@ -64,6 +64,7 @@ export default function Monitor() {
   const [riskForecast, setRiskForecast] = useState<RiskForecast | null>(null);
   const dismissedRef = useRef<Set<string>>(new Set());
   const activeReportRef = useRef<string | null>(null);
+  const lastRiskFetchRef = useRef<number>(0);
 
   // Load lineage graph on mount
   useEffect(() => {
@@ -124,10 +125,13 @@ export default function Monitor() {
         setActivity(act.entries ?? []);
       } catch { /* ignore */ }
 
-      try {
-        const rf = await fetch("/api/monitoring/risk-forecast").then((r) => r.json());
-        if (rf.tables) setRiskForecast(rf);
-      } catch { /* ignore */ }
+      // Risk forecast is expensive (Gemini calls) — only refresh every 30s
+      if (!riskForecast || Date.now() - lastRiskFetchRef.current > 30_000) {
+        try {
+          const rf = await fetch("/api/monitoring/risk-forecast").then((r) => r.json());
+          if (rf.tables) { setRiskForecast(rf); lastRiskFetchRef.current = Date.now(); }
+        } catch { /* ignore */ }
+      }
     }
 
     poll();

@@ -84,6 +84,7 @@ async def _poll_fivetran_syncs(
     """
     import asyncio
     import base64
+    import json as _json
     import urllib.request as _ur
 
     api_key    = os.environ.get("FIVETRAN_API_KEY", "")
@@ -113,7 +114,7 @@ async def _poll_fivetran_syncs(
                 },
             )
             with _ur.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read())
+                data = _json.loads(resp.read())
 
             succeeded_at = data.get("data", {}).get("succeeded_at")
             if not succeeded_at:

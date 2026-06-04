@@ -10,8 +10,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import { MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry } from "@/lib/types";
-import ActivityLog from "@/components/ActivityLog";
+import { MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth } from "@/lib/types";
 
 // ── PSI trend chart ────────────────────────────────────────────────────────
 
@@ -327,13 +326,11 @@ export default function MonitoringDataPanel({
   trend,
   freshness,
   connectorHealth,
-  activity,
 }: {
   summary: MonitoringSummary | null;
   trend: PsiTrendPoint[];
   freshness: TableFreshness[];
   connectorHealth: ConnectorHealth | null;
-  activity: ActivityEntry[];
 }) {
   const isAnomalous = summary?.is_anomalous ?? false;
   const trendColumn = trend.length > 0 ? trend[trend.length - 1].column : null;
@@ -341,13 +338,7 @@ export default function MonitoringDataPanel({
   return (
     <div className="flex flex-col h-full p-6 gap-7 overflow-y-auto">
 
-      {/* Agent activity log — shown first so it's immediately visible */}
-      <div>
-        <div className="text-xs text-cream-300/35 uppercase tracking-widest mb-3 font-sans">
-          Agent Activity
-        </div>
-        <ActivityLog entries={activity} maxHeight={220} />
-      </div>
+
 
       {/* PSI trend chart */}
       <div className="border-t border-navy-700 pt-6 flex-shrink-0" style={{ height: "260px" }}>

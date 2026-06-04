@@ -6,6 +6,7 @@ import Link from "next/link";
 import VerdictPanel from "@/components/VerdictPanel";
 import MonitoringDataPanel from "@/components/MonitoringDataPanel";
 import ConnectorHealthPanel from "@/components/ConnectorHealthPanel";
+import ActivityLog from "@/components/ActivityLog";
 import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry } from "@/lib/types";
 
 const LineageGraph = dynamic(() => import("@/components/LineageGraph"), {
@@ -269,12 +270,20 @@ export default function Monitor() {
             )}
           </div>
 
-          {/* Content */}
+          {/* Activity log — always visible, pinned below the header */}
+          <div className="px-4 py-3 border-b border-navy-700 flex-shrink-0 bg-navy-900/20">
+            <div className="text-xs text-cream-300/30 uppercase tracking-widest mb-2 font-sans">
+              Agent Activity
+            </div>
+            <ActivityLog entries={activity} maxHeight={160} />
+          </div>
+
+          {/* Content — verdict or idle monitoring data */}
           <div className="flex-1 overflow-y-auto">
             {verdict ? (
               <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
             ) : (
-              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} activity={activity} />
+              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} />
             )}
           </div>
         </div>

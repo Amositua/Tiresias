@@ -167,8 +167,8 @@ function TiresiasNode({ data }: NodeProps) {
     <div
       className={anomalous && isSource ? "node-anomalous" : ""}
       style={{
-        minWidth: isSource ? 480 : 400,
-        maxWidth: isSource ? 520 : 430,
+        minWidth: isSource ? 620 : 520,
+        maxWidth: isSource ? 660 : 560,
         borderRadius: 14,
         border: `1.5px solid ${accentColor}${anomalous || quarantined ? "" : "44"}`,
         background: bgGrad,
@@ -184,7 +184,7 @@ function TiresiasNode({ data }: NodeProps) {
         background: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor}44 100%)`,
       }} />
 
-      <div style={{ padding: "22px 24px" }}>
+      <div style={{ padding: "26px 28px" }}>
         {/* Handle — target */}
         {!isSource && (
           <Handle
@@ -203,7 +203,7 @@ function TiresiasNode({ data }: NodeProps) {
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <span style={{
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 700,
             letterSpacing: "0.12em",
             textTransform: "uppercase",
@@ -216,12 +216,12 @@ function TiresiasNode({ data }: NodeProps) {
 
         {/* Node name */}
         <div style={{
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: 700,
           color: "#F2EDE4",
           lineHeight: 1.25,
           wordBreak: "break-word",
-          marginBottom: subLabel ? 6 : 12,
+          marginBottom: subLabel ? 7 : 14,
         }}>
           {label}
         </div>
@@ -229,10 +229,10 @@ function TiresiasNode({ data }: NodeProps) {
         {/* Sub-label */}
         {subLabel && (
           <div style={{
-            fontSize: 14,
+            fontSize: 16,
             fontFamily: "monospace",
             color: "#374151",
-            marginBottom: 14,
+            marginBottom: 16,
             letterSpacing: "0.04em",
           }}>
             {subLabel}
@@ -514,8 +514,8 @@ function buildLayout(
     byHop[h] = [...(byHop[h] ?? []), n];
   }
 
-  const HORIZ = 580;
-  const VERT  = 280;
+  const HORIZ = 720;
+  const VERT  = 340;
 
   const flowNodes: Node[] = graphNodes.map((n) => {
     const hop      = hopMap[n.id] ?? 0;

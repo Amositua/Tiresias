@@ -70,12 +70,107 @@ def _build_orchestrator() -> TiresiasOrchestrator:
     )
 
 
+async def _poll_fivetran_syncs(
+    orch: "TiresiasOrchestrator",
+    connector_id: str,
+    dataset: str,
+    tables: list[str],
+    interval_seconds: int,
+) -> None:
+    """
+    Background task: poll the Fivetran REST API every `interval_seconds`.
+    When succeeded_at changes (new sync completed), automatically trigger
+    the full Memory → Lineage → Oracle → MCP pipeline for each watched table.
+    """
+    import asyncio
+    import base64
+    import urllib.request as _ur
+
+    api_key    = os.environ.get("FIVETRAN_API_KEY", "")
+    api_secret = os.environ.get("FIVETRAN_API_SECRET", "")
+    if not api_key or not api_secret:
+        log.warning("fivetran_poller_disabled", reason="FIVETRAN_API_KEY/SECRET not set")
+        return
+
+    credentials = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode()
+    last_succeeded_at: str | None = None
+
+    log.info(
+        "fivetran_poller_started",
+        connector_id=connector_id,
+        interval_seconds=interval_seconds,
+        tables=tables,
+    )
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            req = _ur.Request(
+                f"https://api.fivetran.com/v1/connectors/{connector_id}",
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Accept": "application/json;version=2",
+                },
+            )
+            with _ur.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+
+            succeeded_at = data.get("data", {}).get("succeeded_at")
+            if not succeeded_at:
+                continue
+
+            if last_succeeded_at is None:
+                # First successful poll — record current timestamp, do not trigger
+                last_succeeded_at = succeeded_at
+                log.info("fivetran_poller_baseline", succeeded_at=succeeded_at)
+                continue
+
+            if succeeded_at != last_succeeded_at:
+                # New sync completed
+                last_succeeded_at = succeeded_at
+                log.info(
+                    "fivetran_sync_auto_detected",
+                    connector_id=connector_id,
+                    succeeded_at=succeeded_at,
+                )
+                for table in tables:
+                    try:
+                        await orch.handle_sync_completed(connector_id, dataset, table)
+                    except Exception as exc:
+                        log.warning("auto_trigger_failed", table=table, error=str(exc))
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("fivetran_poll_error", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     global _orchestrator
     _orchestrator = _build_orchestrator()
     log.info("orchestrator_ready")
+
+    # Start background Fivetran sync poller
+    connector_id  = os.environ.get("FIVETRAN_CONNECTOR_ID", "wanderer_financing")
+    dataset       = os.environ.get("BIGQUERY_HUBSPOT_DATASET", "hubspot")
+    tables        = ["deal_pipeline_stage", "deal"]
+    interval      = int(os.environ.get("FIVETRAN_POLL_INTERVAL_SECONDS", "60"))
+
+    _poll_task = asyncio.create_task(
+        _poll_fivetran_syncs(_orchestrator, connector_id, dataset, tables, interval)
+    )
+    log.info("fivetran_poller_scheduled", interval_seconds=interval)
+
     yield
+
+    _poll_task.cancel()
+    try:
+        await _poll_task
+    except asyncio.CancelledError:
+        pass
+
     _orchestrator = None
 
 

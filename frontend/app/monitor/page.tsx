@@ -6,7 +6,7 @@ import Link from "next/link";
 import VerdictPanel from "@/components/VerdictPanel";
 import MonitoringDataPanel from "@/components/MonitoringDataPanel";
 import ConnectorHealthPanel from "@/components/ConnectorHealthPanel";
-import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, ActivityEntry, RiskForecast } from "@/lib/types";
+import { Verdict, GraphNode, GraphEdge, MonitoringSummary, PsiTrendPoint, TableFreshness, ConnectorHealth, RiskForecast } from "@/lib/types";
 
 const LineageGraph = dynamic(() => import("@/components/LineageGraph"), {
   ssr: false,
@@ -60,7 +60,6 @@ export default function Monitor() {
   const [trend, setTrend] = useState<PsiTrendPoint[]>([]);
   const [freshness, setFreshness] = useState<TableFreshness[]>([]);
   const [connectorHealth, setConnectorHealth] = useState<ConnectorHealth | null>(null);
-  const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [riskForecast, setRiskForecast] = useState<RiskForecast | null>(null);
   const dismissedRef = useRef<Set<string>>(new Set());
   const activeReportRef = useRef<string | null>(null);
@@ -118,11 +117,6 @@ export default function Monitor() {
       try {
         const ch = await fetch("/api/monitoring/connector-health").then((r) => r.json());
         if (ch.tables) setConnectorHealth(ch);
-      } catch { /* ignore */ }
-
-      try {
-        const act = await fetch("/api/monitoring/activity").then((r) => r.json());
-        setActivity(act.entries ?? []);
       } catch { /* ignore */ }
 
       // Risk forecast is expensive (Gemini calls) — only refresh every 30s
@@ -284,7 +278,7 @@ export default function Monitor() {
             {verdict ? (
               <VerdictPanel verdict={verdict} onApprove={handleApprove} onDismiss={handleDismiss} />
             ) : (
-              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} riskForecast={riskForecast} activity={activity} />
+              <MonitoringDataPanel summary={summary} trend={trend} freshness={freshness} connectorHealth={connectorHealth} riskForecast={riskForecast} />
             )}
           </div>
         </div>

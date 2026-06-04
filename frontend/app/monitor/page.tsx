@@ -249,7 +249,7 @@ export default function Monitor() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left: Lineage / dependency graph */}
-        <div className="border-r border-navy-700 relative" style={{ flex: "0 0 57%" }}>
+        <div className="border-r border-navy-700 relative overflow-hidden" style={{ flex: "0 0 57%", height: "100%" }}>
           <div className="absolute top-4 left-5 z-10 pointer-events-none select-none">
             <span className="text-xs text-cream-300/30 uppercase tracking-widest">Dependency Graph</span>
           </div>

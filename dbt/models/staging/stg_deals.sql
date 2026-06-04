@@ -7,5 +7,5 @@ SELECT
 FROM {{ source('hubspot', 'deal') }} d
 JOIN {{ source('hubspot', 'deal_pipeline_stage') }} s
   ON d.deal_pipeline_stage_id = s.stage_id
-WHERE s.label = 'Contract Sent'
+WHERE s.label = 'Contract Under Review'
   AND NOT d._fivetran_deleted

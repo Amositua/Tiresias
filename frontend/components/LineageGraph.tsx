@@ -167,8 +167,8 @@ function TiresiasNode({ data }: NodeProps) {
     <div
       className={anomalous && isSource ? "node-anomalous" : ""}
       style={{
-        minWidth: isSource ? 420 : 360,
-        maxWidth: isSource ? 460 : 390,
+        minWidth: isSource ? 300 : 260,
+        maxWidth: isSource ? 330 : 285,
         borderRadius: 14,
         border: `1.5px solid ${accentColor}${anomalous || quarantined ? "" : "44"}`,
         background: bgGrad,
@@ -514,8 +514,8 @@ function buildLayout(
     byHop[h] = [...(byHop[h] ?? []), n];
   }
 
-  const HORIZ = 520;
-  const VERT  = 260;
+  const HORIZ = 370;
+  const VERT  = 190;
 
   const flowNodes: Node[] = graphNodes.map((n) => {
     const hop      = hopMap[n.id] ?? 0;
@@ -630,7 +630,7 @@ export default function LineageGraph({ graphNodes, graphEdges, state, psiScore, 
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.28 }}
+        fitViewOptions={{ padding: 0.18 }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}

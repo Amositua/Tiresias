@@ -158,7 +158,6 @@ export default function Monitor() {
     }
     const data = await res.json();
     setGraphState("quarantined");
-    setActiveTab("monitor");
     return {
       github_pr_url: data.github_pr_url ?? undefined,
       github_pr_number: data.github_pr_number ?? undefined,
@@ -207,7 +206,7 @@ export default function Monitor() {
           <div className="hidden md:flex items-center gap-6 text-sm text-cream-300/40">
             <span className="font-mono">wanderer_financing</span>
             <span>·</span>
-            <span>Gemini 2.0 Flash</span>
+            <span>Gemini 3.1 Pro</span>
             <span>·</span>
             <span>PSI threshold 0.25</span>
           </div>

@@ -146,6 +146,49 @@ async def _poll_fivetran_syncs(
             log.warning("fivetran_poll_error", error=str(exc))
 
 
+async def _poll_pr_merges(orch: "TiresiasOrchestrator", interval_seconds: int = 20) -> None:
+    """
+    Background task: check every `interval_seconds` whether any quarantined
+    action's GitHub PR has been merged. If so, call execute_reenabled()
+    automatically — no frontend polling required.
+    """
+    import asyncio
+    gh_token = os.environ.get("GITHUB_TOKEN", "")
+    gh_repo  = os.environ.get("GITHUB_REPO", "")
+
+    if not gh_token or not gh_repo:
+        log.warning("pr_poller_disabled", reason="GITHUB_TOKEN/REPO not set")
+        return
+
+    log.info("pr_poller_started", interval_seconds=interval_seconds)
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            if not orch._quarantined:
+                continue
+
+            from tiresias.github_client import GitHubClient
+            gh = GitHubClient(gh_token, gh_repo)
+
+            for report_id, action in list(orch._quarantined.items()):
+                if not action.github_pr_number:
+                    continue
+                try:
+                    pr_state = gh.get_pr_state(action.github_pr_number)
+                    if pr_state.get("merged"):
+                        log.info("pr_merge_detected", report_id=report_id,
+                                 pr_number=action.github_pr_number)
+                        await orch.execute_reenabled(report_id)
+                except Exception as exc:
+                    log.warning("pr_poll_check_failed", report_id=report_id, error=str(exc))
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("pr_poller_error", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
@@ -162,15 +205,22 @@ async def lifespan(app: FastAPI):
     _poll_task = asyncio.create_task(
         _poll_fivetran_syncs(_orchestrator, connector_id, dataset, tables, interval)
     )
+
+    # Start background PR merge poller — re-enables table when PR merged on GitHub
+    _pr_task = asyncio.create_task(_poll_pr_merges(_orchestrator, interval_seconds=20))
+
     log.info("fivetran_poller_scheduled", interval_seconds=interval)
+    log.info("pr_poller_scheduled", interval_seconds=20)
 
     yield
 
     _poll_task.cancel()
-    try:
-        await _poll_task
-    except asyncio.CancelledError:
-        pass
+    _pr_task.cancel()
+    for t in [_poll_task, _pr_task]:
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
     _orchestrator = None
 

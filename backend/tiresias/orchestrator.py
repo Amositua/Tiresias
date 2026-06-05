@@ -447,6 +447,25 @@ class TiresiasOrchestrator:
         if action is None:
             raise KeyError(f"No quarantined action for report_id={report_id!r}")
 
+        # Pull the merged code fix before re-enabling — uvicorn --reload picks it up
+        import subprocess
+        from pathlib import Path as _Path
+        repo_root = _Path(__file__).parent.parent.parent
+        try:
+            result = subprocess.run(
+                ["git", "pull"],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                log.info("git_pull_success", output=result.stdout.strip())
+            else:
+                log.warning("git_pull_failed", stderr=result.stderr.strip())
+        except Exception as exc:
+            log.warning("git_pull_error", error=str(exc))
+
         reenable_result = await self._mcp.reenable_table(
             action.connector_id, action.schema_name, action.table_name
         )

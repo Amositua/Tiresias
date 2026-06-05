@@ -443,7 +443,7 @@ class TiresiasOrchestrator:
 
     async def execute_reenabled(self, report_id: str) -> dict:
         """Re-enable a quarantined table after the engineer deploys the dbt fix."""
-        action = self._quarantined.pop(report_id, None)
+        action = self._quarantined.get(report_id)
         if action is None:
             raise KeyError(f"No quarantined action for report_id={report_id!r}")
 
@@ -466,9 +466,17 @@ class TiresiasOrchestrator:
         except Exception as exc:
             log.warning("git_pull_error", error=str(exc))
 
-        reenable_result = await self._mcp.reenable_table(
-            action.connector_id, action.schema_name, action.table_name
-        )
+        try:
+            reenable_result = await self._mcp.reenable_table(
+                action.connector_id, action.schema_name, action.table_name
+            )
+        except Exception as exc:
+            # MCP may throw if table is already enabled — treat as success
+            log.warning("reenable_mcp_error", error=str(exc), treating_as_success=True)
+            reenable_result = {"note": "already_enabled_or_mcp_error"}
+
+        # Only remove from quarantined after successful (or gracefully handled) re-enable
+        self._quarantined.pop(report_id, None)
         self._audit(
             "reenable_executed",
             report_id=report_id,

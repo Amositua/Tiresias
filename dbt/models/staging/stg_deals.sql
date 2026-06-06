@@ -1,1 +1,1 @@
-WHERE s.stage_id = 'contractsent'
+WHERE s.label = 'Contract Under Review'

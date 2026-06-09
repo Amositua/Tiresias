@@ -520,7 +520,8 @@ WHERE s.stage_id = 'contractsent'
 @app.get("/monitoring/summary")
 def monitoring_summary() -> dict:
     orch = _require_orchestrator()
-    latest_entry = list(orch._psi_log)[-1] if orch._psi_log else None
+    dps_entries = [e for e in orch._psi_log if e.get("table") == "deal_pipeline_stage"]
+    latest_entry = dps_entries[-1] if dps_entries else (list(orch._psi_log)[-1] if orch._psi_log else None)
     return {
         "tables_watched": 2,
         "active_incidents": len(orch._pending),

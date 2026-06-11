@@ -1,4 +1,8 @@
-"""Gemini inference layer — classifies DriftReports into one of four categories."""
+"""Gemini inference layer — classifies DriftReports into one of four categories.
+
+Inference runs through Google ADK (`LlmAgent` + `InMemoryRunner`) rather than
+calling `google.genai` directly, so the Oracle agent is a real ADK agent.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +10,12 @@ import ast
 import json
 import logging
 from enum import Enum
-from typing import Any
+from functools import cached_property
 
+from google.adk.agents import LlmAgent
+from google.adk.models import Gemini
+from google.adk.runners import InMemoryRunner
+from google.genai import Client, types
 from pydantic import BaseModel, Field
 
 from lineage.graph import BlastRadius
@@ -16,7 +24,62 @@ from memory.fingerprint import DriftReport
 log = logging.getLogger(__name__)
 
 ORACLE_MODEL = "gemini-3.1-pro-preview"
-_ORACLE_LOCATION = "global"  # Gemini 3.1 Pro Preview: global endpoint only; regional causes silent 404
+
+
+class _GlobalGemini(Gemini):
+    """Gemini model pinned to Vertex AI's global endpoint.
+
+    gemini-3.1-pro-preview is only available on the global endpoint;
+    regional endpoints return a silent 404.
+    """
+
+    project: str
+
+    @cached_property
+    def api_client(self) -> Client:
+        return Client(vertexai=True, project=self.project, location="global")
+
+
+async def _run_oracle_agent(
+    *,
+    project: str,
+    model_name: str,
+    agent_name: str,
+    instruction: str,
+    prompt: str,
+    output_schema: type[BaseModel] | None,
+    generate_content_config: types.GenerateContentConfig,
+) -> tuple[str, str | None]:
+    """Run a single-turn ADK agent call. Returns (final_text, thought_text)."""
+    agent = LlmAgent(
+        name=agent_name,
+        model=_GlobalGemini(model=model_name, project=project),
+        instruction=instruction,
+        output_schema=output_schema,
+        generate_content_config=generate_content_config,
+    )
+    runner = InMemoryRunner(agent=agent, app_name="tiresias_oracle")
+    session = await runner.session_service.create_session(
+        app_name="tiresias_oracle", user_id="oracle"
+    )
+    message = types.Content(role="user", parts=[types.Part(text=prompt)])
+
+    final_text: str | None = None
+    thought_text: str | None = None
+    async for event in runner.run_async(
+        user_id="oracle", session_id=session.id, new_message=message
+    ):
+        if not event.content or not event.content.parts:
+            continue
+        for part in event.content.parts:
+            if getattr(part, "thought", False):
+                thought_text = (thought_text or "") + (part.text or "")
+            elif part.text:
+                final_text = part.text
+
+    if final_text is None:
+        raise RuntimeError(f"Oracle ADK agent {agent_name!r}: no response text")
+    return final_text, thought_text
 
 
 class DriftClassification(str, Enum):
@@ -66,30 +129,18 @@ class OracleAgent:
     def __init__(self, project: str, model: str = ORACLE_MODEL) -> None:
         self._model = model
         self._project = project
-        self._client: Any = None
 
-    def _get_client(self) -> Any:
-        if self._client is None:
-            from google import genai
-            self._client = genai.Client(
-                vertexai=True,
-                project=self._project,
-                location=_ORACLE_LOCATION,
-            )
-        return self._client
-
-    def classify(self, drift_report: DriftReport, blast_radius: BlastRadius) -> OracleVerdict:
-        from google.genai import types
-
-        client = self._get_client()
+    async def classify(self, drift_report: DriftReport, blast_radius: BlastRadius) -> OracleVerdict:
         prompt = _build_prompt(drift_report, blast_radius)
 
-        response = client.models.generate_content(
-            model=self._model,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=_GeminiClassification,
+        final_text, thought_text = await _run_oracle_agent(
+            project=self._project,
+            model_name=self._model,
+            agent_name="oracle_classifier",
+            instruction="Classify the drift report and respond using the provided JSON schema.",
+            prompt=prompt,
+            output_schema=_GeminiClassification,
+            generate_content_config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(
                     include_thoughts=True,
                     thinking_budget=1024,
@@ -99,27 +150,7 @@ class OracleAgent:
             ),
         )
 
-        # Collect thought parts for audit. In multi-turn use, the full
-        # response.candidates[0].content (all parts, including thought parts) must be
-        # passed back as the prior assistant turn — stripping thought parts causes a 400.
-        thought_text: str | None = None
-        for part in response.candidates[0].content.parts:
-            if getattr(part, "thought", False):
-                thought_text = (thought_text or "") + part.text
-
-        # Extract structured output
-        gemini_result: _GeminiClassification
-        if response.parsed is not None:
-            gemini_result = response.parsed
-        else:
-            raw_part = next(
-                (p for p in reversed(response.candidates[0].content.parts)
-                 if not getattr(p, "thought", False)),
-                None,
-            )
-            if raw_part is None:
-                raise RuntimeError("Oracle: no response part found")
-            gemini_result = _GeminiClassification.model_validate(json.loads(raw_part.text))
+        gemini_result = _GeminiClassification.model_validate(json.loads(final_text))
 
         return OracleVerdict(
             classification=gemini_result.classification,
@@ -133,7 +164,6 @@ class OracleAgent:
             baseline_includes_synthetic=drift_report.baseline_includes_synthetic,
             thought_text=thought_text,
         )
-
 
     def predict_risk(self, table: str, profile: dict) -> dict:
         """Return risk score + Gemini-generated reason for a table."""
@@ -159,9 +189,8 @@ class OracleAgent:
         self, table: str, profile: dict, score: int, level: str
     ) -> str:
         try:
-            from google.genai import types
+            import asyncio
 
-            client = self._get_client()
             anomaly_count = profile.get("anomaly_count", 0)
             recent_days = profile.get("recent_anomaly_days")
             volatile_col = profile.get("volatile_column")
@@ -186,16 +215,20 @@ Signals:
 
 One sentence only. No bullet points. No preamble."""
 
-            response = client.models.generate_content(
-                model=self._model,
-                contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-                config=types.GenerateContentConfig(
+            final_text, _ = asyncio.run(_run_oracle_agent(
+                project=self._project,
+                model_name=self._model,
+                agent_name="oracle_risk_reason",
+                instruction="Respond with the single requested sentence only.",
+                prompt=prompt,
+                output_schema=None,
+                generate_content_config=types.GenerateContentConfig(
                     temperature=0.3,
-                    max_output_tokens=200,
+                    max_output_tokens=512,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
                 ),
-            )
-            text = response.candidates[0].content.parts[-1].text.strip()
-            return text
+            ))
+            return final_text.strip()
         except Exception:
             # Fallback: generate from components without Gemini
             if profile.get("anomaly_count", 0) > 0:
@@ -205,42 +238,32 @@ One sentence only. No bullet points. No preamble."""
                 return f"Column '{col}' drifted {profile['anomaly_count']} time(s) in recent history, most recently {days_str}."
             return f"No significant drift history — baseline is stable across {profile.get('fingerprint_count', 0)} fingerprints."
 
-    def generate_fix(
+    async def generate_fix(
         self,
         verdict: OracleVerdict,
         blast_radius: "BlastRadius",  # type: ignore[name-defined]
         models_sql: list[dict],
     ) -> list[FixSuggestion]:
         """Second Gemini pass: read affected dbt model SQL and generate corrected code."""
-        from google.genai import types
-
         if not models_sql:
             return []
 
-        client = self._get_client()
         prompt = _build_fix_prompt(verdict, blast_radius, models_sql)
 
-        response = client.models.generate_content(
-            model=self._model,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=_GeminiFixes,
+        final_text, _ = await _run_oracle_agent(
+            project=self._project,
+            model_name=self._model,
+            agent_name="oracle_fix_generator",
+            instruction="Generate fixes and respond using the provided JSON schema.",
+            prompt=prompt,
+            output_schema=_GeminiFixes,
+            generate_content_config=types.GenerateContentConfig(
                 temperature=0.2,
                 max_output_tokens=2048,
             ),
         )
 
-        if response.parsed is not None:
-            return response.parsed.fixes
-        raw_part = next(
-            (p for p in reversed(response.candidates[0].content.parts)
-             if not getattr(p, "thought", False)),
-            None,
-        )
-        if raw_part is None:
-            return []
-        return _GeminiFixes.model_validate(json.loads(raw_part.text)).fixes
+        return _GeminiFixes.model_validate(json.loads(final_text)).fixes
 
 
 def _parse_dist(s: str | None) -> dict[str, float]:

@@ -168,7 +168,7 @@ class TiresiasOrchestrator:
 
         # --- Oracle: classify ---
         self._emit("Oracle", "classifying", "Gemini 3.1 Pro · structured reasoning", "running")
-        verdict = self._oracle.classify(drift_report, blast_radius)
+        verdict = await self._oracle.classify(drift_report, blast_radius)
         self._audit(
             "oracle_verdict",
             report_id=drift_report.report_id,
@@ -250,7 +250,7 @@ class TiresiasOrchestrator:
                 self._emit("Fix", "reading_models",
                     f"reading SQL for {', '.join(m['name'] for m in models_sql)}", "running",
                     report_id=drift_report.report_id)
-                fixes = self._oracle.generate_fix(verdict, blast_radius, models_sql)
+                fixes = await self._oracle.generate_fix(verdict, blast_radius, models_sql)
                 verdict = verdict.model_copy(update={"suggested_fixes": fixes})
                 if fixes:
                     self._emit("Fix", "fix_generated",

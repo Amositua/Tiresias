@@ -67,7 +67,7 @@ function Hero() {
       {/* Sub */}
       <p className="relative mt-7 text-cream-300/60 text-lg md:text-xl text-center leading-relaxed max-w-xl font-sans">
         Tiresias monitors every Fivetran sync, detects semantic drift the moment
-        it lands, and quarantines bad data at the source — automatically.
+        it lands, and quarantines bad data at the source, automatically.
       </p>
 
       {/* CTAs */}
@@ -241,7 +241,7 @@ function Features() {
           <FeatureCard
             eyebrow="AI classification"
             title="Not just anomalous. But why."
-            body="Gemini 2.0 Flash classifies every drift event: organic volume change, upstream schema addition, or silent semantic failure — the kind where your numbers are wrong but your pipeline shows green."
+            body="Gemini 3.1 Pro classifies every drift event: organic volume change, upstream schema addition, or silent semantic failure — the kind where your numbers are wrong but your pipeline shows green."
           />
           <FeatureCard
             eyebrow="Blast radius tracing"
@@ -324,7 +324,7 @@ function HowItWorks() {
           </div>
           <div className="p-5 font-mono text-xs space-y-3 leading-relaxed">
             {[
-              { t: "12:34:01", event: "sync_received", detail: "wanderer_financing · deal_pipeline_stage", color: "text-cream-300/50" },
+              { t: "12:34:01", event: "sync_received", detail: "ungraded_rag · deal_pipeline_stage", color: "text-cream-300/50" },
               { t: "12:34:02", event: "schema_check", detail: "MCP → hubspot schema discovered", color: "text-cream-300/50" },
               { t: "12:34:04", event: "fingerprint_computed", detail: "PSI 2.14 on label · threshold 0.25", color: "text-amber-400/80" },
               { t: "12:34:06", event: "oracle_classified", detail: "SILENT_SEMANTIC_FAILURE · 95% confidence", color: "text-red-400/80" },

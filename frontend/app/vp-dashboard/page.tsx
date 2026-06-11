@@ -97,7 +97,7 @@ export default function VPDashboard() {
       {/* Header */}
       <header className="px-10 py-7 border-b border-navy-700 flex items-center justify-between">
         <div>
-          <p className="text-xs text-cream-300/40 uppercase tracking-widest font-sans mb-1">wanderer_financing · HubSpot CRM</p>
+          <p className="text-xs text-cream-300/40 uppercase tracking-widest font-sans mb-1">ungraded_rag · HubSpot CRM</p>
           <h1 className="font-serif text-2xl text-cream-100 tracking-tight">Late-Stage Pipeline</h1>
         </div>
         <div className="flex items-center gap-8">

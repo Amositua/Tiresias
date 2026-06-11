@@ -204,7 +204,7 @@ export default function Monitor() {
 
         <div className="flex items-center gap-6">
           <div className="hidden md:flex items-center gap-6 text-sm text-cream-300/40">
-            <span className="font-mono">wanderer_financing</span>
+            <span className="font-mono">ungraded_rag</span>
             <span>·</span>
             <span>Gemini 3.1 Pro</span>
             <span>·</span>

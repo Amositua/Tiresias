@@ -8,6 +8,8 @@ Tiresias is a multi-agent system that detects those invisible failures before th
 
 Named after the blind prophet of Greek myth who could see what others could not.
 
+**Live frontend:** https://frontend-five-plum-18.vercel.app *(dashboard UI; the FastAPI backend runs locally against the live Fivetran/BigQuery/Vertex AI pipeline — see [Quick start](#quick-start) to run it end-to-end)*
+
 ---
 
 ## What Tiresias does
@@ -60,7 +62,7 @@ graph TD
     T --> O[Oracle Agent\nGemini 3.1 Pro inference]
     O -->|Verdict| T
 
-    T -->|SILENT_SEMANTIC_FAILURE| D[Dashboard\nNext.js on Cloud Run]
+    T -->|SILENT_SEMANTIC_FAILURE| D[Dashboard\nNext.js on Vercel]
     D -->|human approves| T
     T --> MCP[Fivetran MCP Server]
     MCP --> FTA[Fivetran API]
@@ -82,8 +84,8 @@ graph TD
 
 ## Tech stack
 
-- **Brain:** Gemini 3.1 Pro via Vertex AI (Google Gen AI SDK)
-- **Orchestration:** Google Cloud Agent Builder + Agent Development Kit (Python)
+- **Brain:** Gemini 3.1 Pro via Vertex AI, served through Google's Agent Development Kit (`LlmAgent` + `InMemoryRunner`)
+- **Orchestration:** Google Cloud Agent Builder + Agent Development Kit (Python) — the Oracle agent (`backend/oracle/inference.py`) is a real ADK `LlmAgent`, pinned to Vertex AI's global endpoint for `gemini-3.1-pro-preview`
 - **Partner integration:** Fivetran MCP server (official Python stdio server; `get_connection_schema_config` for read-only schema inspection, `modify_connection_table_config` for quarantine writes gated behind `FIVETRAN_ALLOW_WRITES=true`)
 - **Data warehouse:** BigQuery (`tiresias-496915` project, `hubspot` dataset for raw tables, `tiresias_meta` for agent state)
 - **Backend:** Python 3.11, FastAPI
@@ -148,9 +150,9 @@ python scripts/trigger_failure.py --mode authentic
 | Phase 2: Lineage | ✅ Done | dbt manifest graph, blast-radius tracing, 13/13 tests |
 | Phase 3: Oracle | ✅ Done | gemini-3.1-pro-preview, structured output, SILENT_SEMANTIC_FAILURE at 0.95 confidence |
 | Phase 4: Orchestrator + MCP | ✅ Done | Full pipeline verified end-to-end on real Fivetran infrastructure — see [docs/e2e_verification.md](docs/e2e_verification.md) |
-| Phase 5: Frontend | ⏳ Pending | Next.js approval dashboard, React Flow graph |
-| Phase 6: Demo polish | ⏳ Pending | |
-| Phase 7: Submission | ⏳ Pending | |
+| Phase 5: Frontend | ✅ Done | Next.js approval dashboard, monitor view, VP pipeline view — deployed to Vercel |
+| Phase 6: Demo polish | ✅ Done | |
+| Phase 7: Submission | ✅ Done | |
 
 **Phase 1 confirmed on real data (2026-05-23):**
 - `hubspot.deal` — 100 rows, `contractsent` at 18% of deals, DriftReport clean (PSI 0.002)
